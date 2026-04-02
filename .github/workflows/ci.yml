@@ -35,7 +35,7 @@ jobs:
   test:
     name: Test (cargo test)
     runs-on: ubuntu-latest
-    needs: [fmt, clippy, check]
+    needs: [fmt, clippy]
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
