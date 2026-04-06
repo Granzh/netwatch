@@ -1,5 +1,6 @@
 use serde::{Deserialize, Serialize};
 use std::path::Path;
+use std::fs;
 use thiserror::Error;
 
 #[derive(Error, Debug)]
@@ -9,6 +10,9 @@ pub enum ConfigError {
 
     #[error("Failed to parse config file: {0}")]
     Parse(#[from] toml::de::Error),
+
+    #[error("Watcher error: {0}")]
+    Notify(#[from] notify::Error),
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq)]
@@ -35,18 +39,27 @@ impl Default for AppConfig {
 
 impl AppConfig {
     pub fn load(path: impl AsRef<Path>) -> Result<Self, ConfigError> {
-        let content = std::fs::read_to_string(path)?;
+        let content = fs::read_to_string(path)?;
         let config = toml::from_str(&content)?;
         Ok(config)
     }
 
     pub fn load_or_default(path: impl AsRef<Path>) -> Self {
-        Self::load(path).unwrap_or_else(|_| Self::default())
+        let path_ref = path.as_ref();
+
+        Self::load(path_ref).unwrap_or_else(|_| {
+            let config = Self::default();
+            if let Ok(toml_str) = toml::to_string_pretty(&config) {
+                let _ = fs::write(path_ref, toml_str);
+            }
+
+            config
+        })
     }
 
     pub fn save(&self, path: impl AsRef<Path>) -> Result<(), ConfigError> {
         let content = toml::to_string_pretty(self).expect("Failed to serialize config");
-        std::fs::write(path, content)?;
+        fs::write(path, content)?;
         Ok(())
     }
 }
