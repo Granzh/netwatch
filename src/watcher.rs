@@ -5,7 +5,7 @@ use std::{
     sync::Arc,
     time::Duration,
 };
-use tokio::sync::{mpsc, RwLock};
+use tokio::sync::{RwLock, mpsc};
 
 pub struct ConfigStore {
     inner: Arc<RwLock<AppConfig>>,
@@ -18,7 +18,10 @@ impl ConfigStore {
         let initial = AppConfig::load_or_default(&path);
         let inner = Arc::new(RwLock::new(initial));
         let watcher = spawn_watcher(path, Arc::clone(&inner), debounce)?;
-        Ok(Self { inner, _watcher: watcher })
+        Ok(Self {
+            inner,
+            _watcher: watcher,
+        })
     }
 
     pub async fn get(&self) -> AppConfig {
