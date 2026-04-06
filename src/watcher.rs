@@ -52,16 +52,14 @@ fn spawn_watcher(
     });
 
     let mut watcher = notify::recommended_watcher(move |res: notify::Result<Event>| {
-        if let Ok(event) = res {
-            if matches!(event.kind, EventKind::Modify(_)) {
-                let _ = tx.send(());
-            }
+        if let Ok(event) = res
+            && matches!(event.kind, EventKind::Modify(_))
+        {
+            let _ = tx.send(());
         }
     })?;
 
-    watcher
-        .watch(&dir, RecursiveMode::NonRecursive)
-        .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
+    watcher.watch(&dir, RecursiveMode::NonRecursive)?;
 
     eprintln!("[config] Watching {dir:?}");
     Ok(watcher)
