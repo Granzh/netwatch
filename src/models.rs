@@ -1,14 +1,14 @@
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct Target {
     pub name: String,
     pub url: String,
     pub is_peer: bool,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct CheckResult {
     pub host: String,
     pub ok: bool,
@@ -17,13 +17,13 @@ pub struct CheckResult {
     pub source: String,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct PeerReport {
     pub node_id: String,
     pub results: Vec<CheckResult>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct NodeStatus {
     pub node_id: String,
     pub last_seen: DateTime<Utc>,
