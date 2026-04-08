@@ -1,6 +1,18 @@
 use chrono::Utc;
 use netwatch::models::{CheckResult, NodeStatus, PeerReport, Target};
 
+fn make_result(host: &str, ok: bool, latency_ms: u32) -> CheckResult {
+    CheckResult {
+        host: host.to_string(),
+        ok,
+        latency_ms,
+        timestamp: Utc::now(),
+        source: "test-node".to_string(),
+    }
+}
+
+// --- Roundtrip ---
+
 #[test]
 fn target_roundtrip() {
     let t = Target {
@@ -15,13 +27,7 @@ fn target_roundtrip() {
 
 #[test]
 fn check_result_roundtrip() {
-    let cr = CheckResult {
-        host: "host1".to_string(),
-        ok: true,
-        latency_ms: 42,
-        timestamp: Utc::now(),
-        source: "node-a".to_string(),
-    };
+    let cr = make_result("host1", true, 42);
     let json = serde_json::to_string(&cr).unwrap();
     let cr2: CheckResult = serde_json::from_str(&json).unwrap();
     assert_eq!(cr, cr2);
@@ -32,20 +38,8 @@ fn peer_report_roundtrip() {
     let pr = PeerReport {
         node_id: "node-1".to_string(),
         results: vec![
-            CheckResult {
-                host: "host1".to_string(),
-                ok: false,
-                latency_ms: 999,
-                timestamp: Utc::now(),
-                source: "node-1".to_string(),
-            },
-            CheckResult {
-                host: "host2".to_string(),
-                ok: true,
-                latency_ms: 12,
-                timestamp: Utc::now(),
-                source: "node-1".to_string(),
-            },
+            make_result("host1", false, 999),
+            make_result("host2", true, 12),
         ],
     };
     let json = serde_json::to_string(&pr).unwrap();
@@ -66,13 +60,7 @@ fn node_status_roundtrip() {
     let ns = NodeStatus {
         node_id: "node-2".to_string(),
         last_seen: Utc::now(),
-        results: vec![CheckResult {
-            host: "host3".to_string(),
-            ok: true,
-            latency_ms: 5,
-            timestamp: Utc::now(),
-            source: "node-2".to_string(),
-        }],
+        results: vec![make_result("host3", true, 5)],
     };
     let json = serde_json::to_string(&ns).unwrap();
     let ns2: NodeStatus = serde_json::from_str(&json).unwrap();
@@ -85,4 +73,95 @@ fn node_status_roundtrip() {
     assert_eq!(r.latency_ms, r2.latency_ms);
     assert_eq!(r.timestamp, r2.timestamp);
     assert_eq!(r.source, r2.source);
+}
+
+// --- Logic ---
+
+#[test]
+fn targets_with_different_fields_are_not_equal() {
+    let a = Target {
+        name: "a".to_string(),
+        url: "http://a.com".to_string(),
+        is_peer: false,
+    };
+    let b = Target {
+        name: "b".to_string(),
+        url: "http://a.com".to_string(),
+        is_peer: false,
+    };
+    let c = Target {
+        name: "a".to_string(),
+        url: "http://a.com".to_string(),
+        is_peer: true,
+    };
+    assert_ne!(a, b);
+    assert_ne!(a, c);
+}
+
+#[test]
+fn clone_is_independent() {
+    let original = Target {
+        name: "original".to_string(),
+        url: "http://x.com".to_string(),
+        is_peer: false,
+    };
+    let mut cloned = original.clone();
+    cloned.name = "mutated".to_string();
+    assert_eq!(original.name, "original");
+    assert_eq!(cloned.name, "mutated");
+}
+
+#[test]
+fn peer_report_count_failures() {
+    let pr = PeerReport {
+        node_id: "node-1".to_string(),
+        results: vec![
+            make_result("h1", false, 500),
+            make_result("h2", true, 10),
+            make_result("h3", false, 800),
+            make_result("h4", true, 20),
+        ],
+    };
+    let failures: Vec<_> = pr.results.iter().filter(|r| !r.ok).collect();
+    let successes: Vec<_> = pr.results.iter().filter(|r| r.ok).collect();
+    assert_eq!(failures.len(), 2);
+    assert_eq!(successes.len(), 2);
+    assert!(failures.iter().all(|r| r.latency_ms > 100));
+}
+
+#[test]
+fn peer_report_empty_results_is_valid() {
+    let pr = PeerReport {
+        node_id: "node-x".to_string(),
+        results: vec![],
+    };
+    let json = serde_json::to_string(&pr).unwrap();
+    let pr2: PeerReport = serde_json::from_str(&json).unwrap();
+    assert_eq!(pr2.results.len(), 0);
+}
+
+#[test]
+fn node_status_max_latency() {
+    let ns = NodeStatus {
+        node_id: "node-3".to_string(),
+        last_seen: Utc::now(),
+        results: vec![
+            make_result("h1", true, 50),
+            make_result("h2", true, 200),
+            make_result("h3", false, 999),
+        ],
+    };
+    let max = ns.results.iter().map(|r| r.latency_ms).max().unwrap();
+    assert_eq!(max, 999);
+}
+
+#[test]
+fn node_status_last_seen_is_in_the_past() {
+    let past = Utc::now() - chrono::Duration::seconds(60);
+    let ns = NodeStatus {
+        node_id: "node-4".to_string(),
+        last_seen: past,
+        results: vec![],
+    };
+    assert!(ns.last_seen < Utc::now());
 }
