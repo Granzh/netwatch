@@ -86,7 +86,10 @@ fn hot_reload_on_file_change() {
         if **store.get() == updated {
             break;
         }
-        assert!(std::time::Instant::now() < deadline, "timed out waiting for hot reload");
+        assert!(
+            std::time::Instant::now() < deadline,
+            "timed out waiting for hot reload"
+        );
         std::thread::sleep(Duration::from_millis(50));
     }
 }
