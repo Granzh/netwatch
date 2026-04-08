@@ -80,10 +80,15 @@ fn hot_reload_on_file_change() {
     };
     updated.save(&path).unwrap();
 
-    // Give notify time to fire and the store to update.
-    std::thread::sleep(Duration::from_millis(500));
-
-    assert_eq!(**store.get(), updated);
+    // Poll until the store reflects the new config or we time out.
+    let deadline = std::time::Instant::now() + Duration::from_secs(3);
+    loop {
+        if **store.get() == updated {
+            break;
+        }
+        assert!(std::time::Instant::now() < deadline, "timed out waiting for hot reload");
+        std::thread::sleep(Duration::from_millis(50));
+    }
 }
 
 #[test]

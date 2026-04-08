@@ -309,6 +309,7 @@ version = "0.1.0"
 dependencies = [
  "arc-swap",
  "chrono",
+ "log",
  "notify",
  "serde",
  "serde_json",

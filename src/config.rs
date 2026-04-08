@@ -11,7 +11,7 @@ pub enum ConfigError {
     #[error("Failed to parse config file: {0}")]
     Parse(#[from] toml::de::Error),
 
-    #[error("Failed to serialize config")]
+    #[error("Failed to serialize config: {0}")]
     Serialize(#[from] toml::ser::Error),
 }
 

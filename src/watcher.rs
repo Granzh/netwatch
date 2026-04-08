@@ -55,12 +55,13 @@ fn spawn_watcher(
 
     let mut watcher = notify::recommended_watcher(move |res: notify::Result<Event>| {
         if let Ok(event) = res
-            && matches!(event.kind, EventKind::Modify(_))
+            && matches!(event.kind, EventKind::Modify(_) | EventKind::Create(_))
+            && event.paths.iter().any(|event_path| event_path == &path)
         {
             let now = SystemTime::now()
                 .duration_since(UNIX_EPOCH)
-                .unwrap()
-                .as_millis() as u64;
+                .map(|duration| duration.as_millis() as u64)
+                .unwrap_or(0);
 
             let prev = last_event_w.load(Ordering::Relaxed);
 
@@ -79,6 +80,6 @@ fn spawn_watcher(
 
     watcher.watch(&dir, RecursiveMode::NonRecursive)?;
 
-    eprintln!("[config] Watching {dir:?}");
+    log::info!("[config] Watching {dir:?}");
     Ok(watcher)
 }
