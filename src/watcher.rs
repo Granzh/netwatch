@@ -2,12 +2,10 @@ use crate::config::AppConfig;
 use arc_swap::ArcSwap;
 use notify::{Event, EventKind, RecommendedWatcher, RecursiveMode, Watcher};
 use std::sync::atomic::Ordering;
-use std::time::SystemTime;
-use std::time::UNIX_EPOCH;
 use std::{
     path::{Path, PathBuf},
     sync::{Arc, atomic::AtomicU64},
-    time::Duration,
+    time::{Duration, Instant},
 };
 use thiserror::Error;
 
@@ -51,22 +49,18 @@ fn spawn_watcher(
 ) -> Result<RecommendedWatcher, WatcherError> {
     let dir = path.parent().unwrap_or(Path::new(".")).to_path_buf();
 
-    let last_event_w = Arc::new(AtomicU64::new(0));
+    let epoch = Instant::now();
+    let last_event_w = Arc::new(AtomicU64::new(u64::MAX));
 
     let mut watcher = notify::recommended_watcher(move |res: notify::Result<Event>| {
         if let Ok(event) = res
             && matches!(event.kind, EventKind::Modify(_) | EventKind::Create(_))
             && event.paths.iter().any(|event_path| event_path == &path)
         {
-            let now = SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .map(|duration| duration.as_millis() as u64)
-                .unwrap_or(0);
-
+            let now = epoch.elapsed().as_nanos() as u64;
             let prev = last_event_w.load(Ordering::Relaxed);
 
-            if now.saturating_sub(prev) < debounce.as_millis() as u64 {
-                last_event_w.store(now, Ordering::Relaxed);
+            if prev != u64::MAX && now.saturating_sub(prev) < debounce.as_nanos() as u64 {
                 return;
             }
 
