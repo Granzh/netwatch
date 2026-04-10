@@ -4,8 +4,8 @@ use std::time::Duration;
 use chrono::Utc;
 use rand::Rng;
 use reqwest::{Client, StatusCode, redirect};
-use thiserror::Error;
 use std::time::Instant;
+use thiserror::Error;
 
 use crate::config::AppConfig;
 use crate::models::{CheckResult, Target};
