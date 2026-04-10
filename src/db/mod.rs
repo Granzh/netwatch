@@ -11,6 +11,9 @@ mod tests;
 pub enum DbError {
     #[error("SQLite error: {0}")]
     Sqlite(#[from] rusqlite::Error),
+
+    #[error("invalid timestamp_ms in DB: {0}")]
+    InvalidTimestamp(i64),
 }
 
 pub struct Db {
@@ -43,16 +46,9 @@ impl Db {
     }
 
     fn migrate(&self) -> Result<(), DbError> {
-        self.conn.execute_batch(
-            "CREATE TABLE IF NOT EXISTS schema_version (
-                version INTEGER NOT NULL
-             );
-             INSERT OR IGNORE INTO schema_version (version) VALUES (0);",
-        )?;
-
         let version: i64 = self
             .conn
-            .query_row("SELECT version FROM schema_version", [], |r| r.get(0))?;
+            .pragma_query_value(None, "user_version", |r| r.get(0))?;
 
         if version < 1 {
             self.conn.execute_batch(
@@ -66,7 +62,7 @@ impl Db {
                 );
                 CREATE INDEX IF NOT EXISTS idx_checks_ts        ON checks (ts);
                 CREATE INDEX IF NOT EXISTS idx_checks_host_ts   ON checks (host, ts);
-                UPDATE schema_version SET version = 1;",
+                PRAGMA user_version = 1;",
             )?;
         }
 
@@ -97,7 +93,10 @@ impl Db {
              FROM checks
              WHERE ts > ?1
                AND id IN (
-                   SELECT MAX(id) FROM checks WHERE ts > ?1 GROUP BY host
+                   SELECT MAX(id) FROM checks c1
+                       WHERE c1.ts > ?1
+                         AND c1.ts = (SELECT MAX(c2.ts) FROM checks c2 WHERE c2.host = c1.host AND c2.ts > ?1)
+                       GROUP BY c1.host
                )
              ORDER BY host",
         )?;
@@ -111,7 +110,7 @@ impl Db {
             "SELECT id, ts, host, ok, latency_ms, source
              FROM checks
              WHERE host = ?1
-             ORDER BY ts DESC
+             ORDER BY ts DESC, id DESC
              LIMIT ?2",
         )?;
         let rows = stmt.query_map(params![host, limit], row_to_check)?;
@@ -132,11 +131,18 @@ impl Db {
 fn row_to_check(row: &rusqlite::Row<'_>) -> rusqlite::Result<CheckResult> {
     let ts_ms: i64 = row.get(1)?;
     let ok: i32 = row.get(3)?;
+    let timestamp = Utc.timestamp_millis_opt(ts_ms).single().ok_or_else(|| {
+        rusqlite::Error::FromSqlConversionFailure(
+            1,
+            rusqlite::types::Type::Integer,
+            Box::new(DbError::InvalidTimestamp(ts_ms)),
+        )
+    })?;
     Ok(CheckResult {
         host: row.get(2)?,
         ok: ok != 0,
         latency_ms: row.get(4)?,
-        timestamp: Utc.timestamp_millis_opt(ts_ms).single().unwrap_or_default(),
+        timestamp,
         source: row.get(5)?,
     })
 }
