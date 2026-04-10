@@ -3,12 +3,23 @@ use std::time::Duration;
 
 use chrono::Utc;
 use rand::Rng;
-use reqwest::{Client, StatusCode, redirect};
+use reqwest::{Client, StatusCode, Url, redirect};
 use std::time::Instant;
 use thiserror::Error;
 
 use crate::config::AppConfig;
 use crate::models::{CheckResult, Target};
+
+fn normalize_host(raw_url: &str) -> String {
+    match Url::parse(raw_url) {
+        Ok(url) => match (url.host_str(), url.port()) {
+            (Some(host), Some(port)) => format!("{host}:{port}"),
+            (Some(host), None) => host.to_string(),
+            _ => raw_url.to_string(),
+        },
+        Err(_) => raw_url.to_string(),
+    }
+}
 
 const USER_AGENTS: &[&str] = &[
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
@@ -74,7 +85,7 @@ impl Checker {
         };
 
         CheckResult {
-            host: target.url.clone(),
+            host: normalize_host(&target.url),
             ok,
             latency_ms,
             timestamp: Utc::now(),
@@ -87,7 +98,6 @@ impl Checker {
 
         match head_result {
             Ok(resp) if resp.status() != StatusCode::METHOD_NOT_ALLOWED => Ok(resp.status()),
-            // Timeout - don't retry with GET, the host is slow/unreachable
             Err(e) if e.is_timeout() || e.is_connect() => Err(e),
             _ => {
                 let resp = self

@@ -209,7 +209,7 @@ async fn check_records_latency() {
     assert!(result.ok);
     assert!(
         result.latency_ms >= 50,
-        "latency should be at least ~100ms, got {}",
+        "latency should be at least ~50ms, got {}",
         result.latency_ms
     );
 }
