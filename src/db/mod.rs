@@ -79,7 +79,13 @@ impl Db {
         let mut stmt = self.conn.prepare_cached(
             "INSERT INTO checks (ts, host, ok, latency_ms, source) VALUES (?1, ?2, ?3, ?4, ?5)",
         )?;
-        stmt.execute(params![ts, result.host, ok, result.latency_ms, result.source])?;
+        stmt.execute(params![
+            ts,
+            result.host,
+            ok,
+            result.latency_ms,
+            result.source
+        ])?;
         Ok(())
     }
 
