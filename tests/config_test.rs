@@ -10,6 +10,9 @@ fn load_save_load_roundtrip() {
         sources: vec!["https://example.com".to_string()],
         latency_threshold_ms: 200,
         check_interval_seconds: 30,
+        request_timeout_secs: 5,
+        follow_redirects: true,
+        danger_accept_invalid_certs: false,
     };
 
     original.save(&path).unwrap();
@@ -43,6 +46,9 @@ fn load_or_default_returns_existing() {
         sources: vec!["https://custom.example.com".to_string()],
         latency_threshold_ms: 500,
         check_interval_seconds: 10,
+        request_timeout_secs: 15,
+        follow_redirects: false,
+        danger_accept_invalid_certs: true,
     };
     custom.save(&path).unwrap();
 
