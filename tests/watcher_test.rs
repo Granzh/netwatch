@@ -8,6 +8,7 @@ fn custom_config() -> AppConfig {
         sources: vec!["https://custom.example.com".to_string()],
         latency_threshold_ms: 250,
         check_interval_seconds: 15,
+        ..AppConfig::default()
     }
 }
 
@@ -77,6 +78,7 @@ fn hot_reload_on_file_change() {
         sources: vec!["https://updated.example.com".to_string()],
         latency_threshold_ms: 42,
         check_interval_seconds: 5,
+        ..AppConfig::default()
     };
     updated.save(&path).unwrap();
 
@@ -109,6 +111,7 @@ fn debounce_suppresses_rapid_reloads() {
         sources: vec!["https://first.example.com".to_string()],
         latency_threshold_ms: 10,
         check_interval_seconds: 1,
+        ..AppConfig::default()
     };
     first_update.save(&path).unwrap();
     std::thread::sleep(Duration::from_millis(200));
@@ -117,6 +120,7 @@ fn debounce_suppresses_rapid_reloads() {
         sources: vec!["https://second.example.com".to_string()],
         latency_threshold_ms: 20,
         check_interval_seconds: 2,
+        ..AppConfig::default()
     };
     second_update.save(&path).unwrap();
     std::thread::sleep(Duration::from_millis(200));

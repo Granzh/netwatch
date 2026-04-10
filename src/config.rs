@@ -20,6 +20,20 @@ pub struct AppConfig {
     pub sources: Vec<String>,
     pub latency_threshold_ms: u32,
     pub check_interval_seconds: u64,
+    #[serde(default = "default_request_timeout_secs")]
+    pub request_timeout_secs: u64,
+    #[serde(default = "default_true")]
+    pub follow_redirects: bool,
+    #[serde(default)]
+    pub danger_accept_invalid_certs: bool,
+}
+
+fn default_request_timeout_secs() -> u64 {
+    10
+}
+
+fn default_true() -> bool {
+    true
 }
 
 impl Default for AppConfig {
@@ -33,6 +47,9 @@ impl Default for AppConfig {
             ],
             latency_threshold_ms: 100,
             check_interval_seconds: 60,
+            request_timeout_secs: default_request_timeout_secs(),
+            follow_redirects: true,
+            danger_accept_invalid_certs: false,
         }
     }
 }
