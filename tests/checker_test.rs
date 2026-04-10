@@ -1,7 +1,6 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use reqwest::redirect;
 use wiremock::matchers::{method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
@@ -148,11 +147,14 @@ async fn check_redirect_followed() {
 
 #[tokio::test]
 async fn check_unreachable_host_does_not_panic() {
-    let config = AppConfig::default();
+    let config = AppConfig {
+        request_timeout_secs: 1,
+        ..AppConfig::default()
+    };
     let client = Arc::new(build_client(&config).unwrap());
     let checker = Checker::new(client, "test-node");
 
-    let result = checker.check(&target("http://192.0.2.1:1")).await;
+    let result = checker.check(&target("http://127.0.0.1:1")).await;
 
     assert!(!result.ok);
     assert!(!result.host.is_empty());
@@ -175,12 +177,8 @@ async fn check_redirect_not_followed_when_disabled() {
         ..AppConfig::default()
     };
 
-    let client = reqwest::Client::builder()
-        .timeout(Duration::from_secs(config.request_timeout_secs))
-        .redirect(redirect::Policy::none())
-        .build()
-        .unwrap();
-    let checker = Checker::new(Arc::new(client), "test-node");
+    let client = Arc::new(build_client(&config).unwrap());
+    let checker = Checker::new(client, "test-node");
 
     let result = checker
         .check(&target(&format!("{}/redir", server.uri())))

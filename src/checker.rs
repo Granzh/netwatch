@@ -5,7 +5,7 @@ use chrono::Utc;
 use rand::Rng;
 use reqwest::{Client, StatusCode, redirect};
 use thiserror::Error;
-use tokio::time::Instant;
+use std::time::Instant;
 
 use crate::config::AppConfig;
 use crate::models::{CheckResult, Target};
