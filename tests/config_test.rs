@@ -15,6 +15,8 @@ fn load_save_load_roundtrip() {
         request_timeout_secs: 5,
         follow_redirects: true,
         danger_accept_invalid_certs: false,
+        listen_port: 9090,
+        api_secret: Some("test-secret".to_string()),
     };
 
     original.save(&path).unwrap();
@@ -53,6 +55,8 @@ fn load_or_default_returns_existing() {
         request_timeout_secs: 15,
         follow_redirects: false,
         danger_accept_invalid_certs: true,
+        listen_port: 3000,
+        api_secret: None,
     };
     custom.save(&path).unwrap();
 
