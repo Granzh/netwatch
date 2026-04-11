@@ -30,6 +30,10 @@ pub struct AppConfig {
     pub follow_redirects: bool,
     #[serde(default)]
     pub danger_accept_invalid_certs: bool,
+    #[serde(default = "default_listen_port")]
+    pub listen_port: u16,
+    #[serde(default)]
+    pub api_secret: Option<String>,
 }
 
 fn default_check_jitter_seconds() -> u64 {
@@ -42,6 +46,10 @@ fn default_max_concurrent_checks() -> usize {
 
 fn default_request_timeout_secs() -> u64 {
     10
+}
+
+fn default_listen_port() -> u16 {
+    8080
 }
 
 fn default_true() -> bool {
@@ -64,6 +72,8 @@ impl Default for AppConfig {
             request_timeout_secs: default_request_timeout_secs(),
             follow_redirects: true,
             danger_accept_invalid_certs: false,
+            listen_port: default_listen_port(),
+            api_secret: None,
         }
     }
 }
