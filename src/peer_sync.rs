@@ -123,12 +123,12 @@ async fn sync_with_peers(
         }
     }
 
-    if !all_results.is_empty() {
-        if let Ok(db) = db.lock() {
-            for result in &all_results {
-                if let Err(e) = db.insert(result) {
-                    log::error!("db insert from peer sync failed: {e}");
-                }
+    if !all_results.is_empty()
+        && let Ok(db) = db.lock()
+    {
+        for result in &all_results {
+            if let Err(e) = db.insert(result) {
+                log::error!("db insert from peer sync failed: {e}");
             }
         }
     }
