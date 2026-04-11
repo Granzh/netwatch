@@ -30,7 +30,7 @@ pub fn jitter_duration(config: &AppConfig) -> Duration {
     } else {
         base + rand::rng().random_range(0..=jitter)
     };
-    Duration::from_secs(secs)
+    Duration::from_secs(secs.max(1))
 }
 
 pub async fn run(
@@ -74,8 +74,9 @@ pub async fn check_all(
 
     let mut results = Vec::with_capacity(targets.len());
     while let Some(res) = set.join_next().await {
-        if let Ok(check_result) = res {
-            results.push(check_result);
+        match res {
+            Ok(check_result) => results.push(check_result),
+            Err(e) => log::error!("check task failed to join: {e}"),
         }
     }
     results

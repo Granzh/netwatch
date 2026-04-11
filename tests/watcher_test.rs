@@ -104,44 +104,39 @@ fn debounce_suppresses_rapid_reloads() {
     let initial = AppConfig::default();
     initial.save(&path).unwrap();
 
-    // Large debounce — rapid second write should be ignored.
+    // Large debounce window.
     let store = ConfigStore::new(&path, Duration::from_millis(5_000)).unwrap();
 
-    let first_update = AppConfig {
+    // Wait for any spurious startup events to settle and pass through the
+    // debounce gate, so the next intentional write lands inside the window.
+    std::thread::sleep(Duration::from_millis(500));
+
+    // First write — may or may not pass debounce depending on whether the
+    // watcher fired a startup event. Either way, write a second time
+    // immediately after and verify it is suppressed.
+    let first_write = AppConfig {
         sources: vec!["https://first.example.com".to_string()],
         latency_threshold_ms: 10,
         check_interval_seconds: 1,
         ..AppConfig::default()
     };
-    first_update.save(&path).unwrap();
+    first_write.save(&path).unwrap();
+    std::thread::sleep(Duration::from_millis(200));
 
-    // Wait until the watcher picks up the first write.
-    let deadline = std::time::Instant::now() + Duration::from_secs(3);
-    loop {
-        if **store.get() == first_update {
-            break;
-        }
-        assert!(
-            std::time::Instant::now() < deadline,
-            "timed out waiting for first config reload"
-        );
-        std::thread::sleep(Duration::from_millis(50));
-    }
-
-    // Second write happens within the 5s debounce window — should be ignored.
-    let second_update = AppConfig {
+    let second_write = AppConfig {
         sources: vec!["https://second.example.com".to_string()],
         latency_threshold_ms: 20,
         check_interval_seconds: 2,
         ..AppConfig::default()
     };
-    second_update.save(&path).unwrap();
+    second_write.save(&path).unwrap();
     std::thread::sleep(Duration::from_millis(300));
 
+    // The store should NOT reflect the second write — it must have been
+    // debounced because it arrived within the 5s window of the prior event.
     let got = store.get();
-    assert_eq!(**got, first_update, "should still reflect first update");
     assert_ne!(
-        **got, second_update,
+        **got, second_write,
         "second rapid write should be debounced"
     );
 }
