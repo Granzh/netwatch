@@ -17,6 +17,9 @@ fn load_save_load_roundtrip() {
         danger_accept_invalid_certs: false,
         listen_port: 9090,
         api_secret: Some("test-secret".to_string()),
+        node_id: "test-node".to_string(),
+        peers: vec!["http://peer1:8080".to_string()],
+        sync_interval_seconds: 30,
     };
 
     original.save(&path).unwrap();
@@ -57,6 +60,9 @@ fn load_or_default_returns_existing() {
         danger_accept_invalid_certs: true,
         listen_port: 3000,
         api_secret: None,
+        node_id: "custom-node".to_string(),
+        peers: vec![],
+        sync_interval_seconds: 120,
     };
     custom.save(&path).unwrap();
 

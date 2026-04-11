@@ -34,6 +34,12 @@ pub struct AppConfig {
     pub listen_port: u16,
     #[serde(default)]
     pub api_secret: Option<String>,
+    #[serde(default = "default_node_id")]
+    pub node_id: String,
+    #[serde(default)]
+    pub peers: Vec<String>,
+    #[serde(default = "default_sync_interval_seconds")]
+    pub sync_interval_seconds: u64,
 }
 
 fn default_check_jitter_seconds() -> u64 {
@@ -46,6 +52,14 @@ fn default_max_concurrent_checks() -> usize {
 
 fn default_request_timeout_secs() -> u64 {
     10
+}
+
+fn default_node_id() -> String {
+    "node-default".to_string()
+}
+
+fn default_sync_interval_seconds() -> u64 {
+    60
 }
 
 fn default_listen_port() -> u16 {
@@ -74,6 +88,9 @@ impl Default for AppConfig {
             danger_accept_invalid_certs: false,
             listen_port: default_listen_port(),
             api_secret: None,
+            node_id: default_node_id(),
+            peers: vec![],
+            sync_interval_seconds: default_sync_interval_seconds(),
         }
     }
 }
