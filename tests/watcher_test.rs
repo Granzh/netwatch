@@ -114,8 +114,21 @@ fn debounce_suppresses_rapid_reloads() {
         ..AppConfig::default()
     };
     first_update.save(&path).unwrap();
-    std::thread::sleep(Duration::from_millis(200));
 
+    // Wait until the watcher picks up the first write.
+    let deadline = std::time::Instant::now() + Duration::from_secs(3);
+    loop {
+        if **store.get() == first_update {
+            break;
+        }
+        assert!(
+            std::time::Instant::now() < deadline,
+            "timed out waiting for first config reload"
+        );
+        std::thread::sleep(Duration::from_millis(50));
+    }
+
+    // Second write happens within the 5s debounce window — should be ignored.
     let second_update = AppConfig {
         sources: vec!["https://second.example.com".to_string()],
         latency_threshold_ms: 20,
@@ -123,12 +136,10 @@ fn debounce_suppresses_rapid_reloads() {
         ..AppConfig::default()
     };
     second_update.save(&path).unwrap();
-    std::thread::sleep(Duration::from_millis(200));
+    std::thread::sleep(Duration::from_millis(300));
 
-    // Only the first event should have passed the debounce gate;
-    // the second write happened within the debounce window.
     let got = store.get();
-    assert_ne!(**got, initial, "config should have changed at least once");
+    assert_eq!(**got, first_update, "should still reflect first update");
     assert_ne!(
         **got, second_update,
         "second rapid write should be debounced"
