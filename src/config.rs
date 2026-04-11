@@ -20,12 +20,24 @@ pub struct AppConfig {
     pub sources: Vec<String>,
     pub latency_threshold_ms: u32,
     pub check_interval_seconds: u64,
+    #[serde(default = "default_check_jitter_seconds")]
+    pub check_jitter_seconds: u64,
+    #[serde(default = "default_max_concurrent_checks")]
+    pub max_concurrent_checks: usize,
     #[serde(default = "default_request_timeout_secs")]
     pub request_timeout_secs: u64,
     #[serde(default = "default_true")]
     pub follow_redirects: bool,
     #[serde(default)]
     pub danger_accept_invalid_certs: bool,
+}
+
+fn default_check_jitter_seconds() -> u64 {
+    5
+}
+
+fn default_max_concurrent_checks() -> usize {
+    10
 }
 
 fn default_request_timeout_secs() -> u64 {
@@ -47,6 +59,8 @@ impl Default for AppConfig {
             ],
             latency_threshold_ms: 100,
             check_interval_seconds: 60,
+            check_jitter_seconds: default_check_jitter_seconds(),
+            max_concurrent_checks: default_max_concurrent_checks(),
             request_timeout_secs: default_request_timeout_secs(),
             follow_redirects: true,
             danger_accept_invalid_certs: false,

@@ -15,6 +15,12 @@ pub enum WatcherError {
     Notify(#[from] notify::Error),
 }
 
+/// Returns `true` if the event should be suppressed (debounced).
+/// `prev_ns` is the timestamp of the last accepted event (`u64::MAX` means no prior event).
+pub fn should_debounce(prev_ns: u64, now_ns: u64, debounce_ns: u64) -> bool {
+    prev_ns != u64::MAX && now_ns.saturating_sub(prev_ns) < debounce_ns
+}
+
 pub struct ConfigStore {
     inner: Arc<ArcSwap<AppConfig>>,
     _watcher: RecommendedWatcher,
@@ -60,7 +66,7 @@ fn spawn_watcher(
             let now = epoch.elapsed().as_nanos() as u64;
             let prev = last_event_w.load(Ordering::Relaxed);
 
-            if prev != u64::MAX && now.saturating_sub(prev) < debounce.as_nanos() as u64 {
+            if should_debounce(prev, now, debounce.as_nanos() as u64) {
                 return;
             }
 
