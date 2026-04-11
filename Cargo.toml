@@ -16,6 +16,7 @@ log = "0.4.29"
 rusqlite = { version = "0.39.0", features = ["bundled"] }
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "hickory-dns"] }
 rand = "0.9"
+tokio-util = "0.7"
 
 [dev-dependencies]
 tempfile = "3"
