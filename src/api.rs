@@ -7,7 +7,7 @@ use axum::response::{IntoResponse, Response};
 use axum::{Json, Router, routing};
 
 use crate::db::Db;
-use crate::models::{CheckResult, PeerReport};
+use crate::models::PeerReport;
 
 const SECRET_HEADER: &str = "X-Netwatch-Token";
 
@@ -45,12 +45,12 @@ async fn secret_guard(State(state): State<AppState>, req: Request, next: Next) -
 async fn sync_handler(
     State(state): State<AppState>,
     Json(peer_report): Json<PeerReport>,
-) -> impl IntoResponse {
+) -> Response {
     let db = Arc::clone(&state.db);
     let node_id = state.node_id.clone();
 
-    let result = tokio::task::spawn_blocking(move || {
-        let db = db.lock().expect("db lock poisoned");
+    match tokio::task::spawn_blocking(move || {
+        let db = db.lock().map_err(|e| format!("db lock poisoned: {e}"))?;
 
         for result in &peer_report.results {
             if let Err(e) = db.insert(result) {
@@ -58,45 +58,69 @@ async fn sync_handler(
             }
         }
 
-        let results = db.latest_status(1).unwrap_or_default();
-
-        PeerReport { node_id, results }
+        let results = db.latest_status(1).map_err(|e| format!("db query failed: {e}"))?;
+        Ok::<_, String>(PeerReport { node_id, results })
     })
     .await
-    .expect("spawn_blocking panicked");
-
-    Json(result)
+    {
+        Ok(Ok(report)) => Json(report).into_response(),
+        Ok(Err(e)) => {
+            log::error!("sync handler failed: {e}");
+            StatusCode::INTERNAL_SERVER_ERROR.into_response()
+        }
+        Err(e) => {
+            log::error!("sync handler worker task failed: {e}");
+            StatusCode::INTERNAL_SERVER_ERROR.into_response()
+        }
+    }
 }
 
 async fn status_handler(State(state): State<AppState>) -> impl IntoResponse {
     let db = Arc::clone(&state.db);
 
-    let results: Vec<CheckResult> = tokio::task::spawn_blocking(move || {
-        let db = db.lock().expect("db lock poisoned");
-        db.latest_status(24).unwrap_or_default()
+    match tokio::task::spawn_blocking(move || {
+        let db = db.lock().map_err(|e| format!("db lock poisoned: {e}"))?;
+        db.latest_status(24)
+            .map_err(|e| format!("db query failed: {e}"))
     })
     .await
-    .expect("spawn_blocking panicked");
-
-    Json(results)
+    {
+        Ok(Ok(results)) => Json(results).into_response(),
+        Ok(Err(e)) => {
+            log::error!("status handler failed: {e}");
+            StatusCode::INTERNAL_SERVER_ERROR.into_response()
+        }
+        Err(e) => {
+            log::error!("status handler worker task failed: {e}");
+            StatusCode::INTERNAL_SERVER_ERROR.into_response()
+        }
+    }
 }
 
 async fn history_handler(
     State(state): State<AppState>,
     Path(host): Path<String>,
-) -> impl IntoResponse {
+) -> Response {
     let db = Arc::clone(&state.db);
 
-    let results: Vec<CheckResult> = tokio::task::spawn_blocking(move || {
-        let db = db.lock().expect("db lock poisoned");
-        db.history(&host, 100).unwrap_or_default()
+    match tokio::task::spawn_blocking(move || {
+        let db = db.lock().map_err(|e| format!("db lock poisoned: {e}"))?;
+        db.history(&host, 100)
+            .map_err(|e| format!("db query failed: {e}"))
     })
     .await
-    .expect("spawn_blocking panicked");
-
-    if results.is_empty() {
-        return (StatusCode::NOT_FOUND, Json(results));
+    {
+        Ok(Ok(results)) if results.is_empty() => {
+            (StatusCode::NOT_FOUND, Json(results)).into_response()
+        }
+        Ok(Ok(results)) => Json(results).into_response(),
+        Ok(Err(e)) => {
+            log::error!("history handler failed: {e}");
+            StatusCode::INTERNAL_SERVER_ERROR.into_response()
+        }
+        Err(e) => {
+            log::error!("history handler worker task failed: {e}");
+            StatusCode::INTERNAL_SERVER_ERROR.into_response()
+        }
     }
-
-    (StatusCode::OK, Json(results))
 }
