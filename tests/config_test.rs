@@ -20,6 +20,7 @@ fn load_save_load_roundtrip() {
         node_id: "test-node".to_string(),
         peers: vec!["http://peer1:8080".to_string()],
         sync_interval_seconds: 30,
+        max_concurrent_syncs: 5,
     };
 
     original.save(&path).unwrap();
@@ -63,6 +64,7 @@ fn load_or_default_returns_existing() {
         node_id: "custom-node".to_string(),
         peers: vec![],
         sync_interval_seconds: 120,
+        max_concurrent_syncs: 5,
     };
     custom.save(&path).unwrap();
 

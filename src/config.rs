@@ -40,6 +40,8 @@ pub struct AppConfig {
     pub peers: Vec<String>,
     #[serde(default = "default_sync_interval_seconds")]
     pub sync_interval_seconds: u64,
+    #[serde(default = "default_max_concurrent_syncs")]
+    pub max_concurrent_syncs: usize,
 }
 
 fn default_check_jitter_seconds() -> u64 {
@@ -55,11 +57,19 @@ fn default_request_timeout_secs() -> u64 {
 }
 
 fn default_node_id() -> String {
-    "node-default".to_string()
+    let host = hostname::get()
+        .ok()
+        .and_then(|h| h.into_string().ok())
+        .unwrap_or_else(|| "unknown".to_string());
+    format!("{host}:{}", default_listen_port())
 }
 
 fn default_sync_interval_seconds() -> u64 {
     60
+}
+
+fn default_max_concurrent_syncs() -> usize {
+    5
 }
 
 fn default_listen_port() -> u16 {
@@ -91,6 +101,7 @@ impl Default for AppConfig {
             node_id: default_node_id(),
             peers: vec![],
             sync_interval_seconds: default_sync_interval_seconds(),
+            max_concurrent_syncs: default_max_concurrent_syncs(),
         }
     }
 }

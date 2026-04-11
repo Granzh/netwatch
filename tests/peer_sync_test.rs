@@ -9,6 +9,7 @@ use netwatch::api::{AppState, router};
 use netwatch::config::AppConfig;
 use netwatch::db::Db;
 use netwatch::models::CheckResult;
+use netwatch::peer_sync::resolve_sync_url;
 
 fn make_result(host: &str, source: &str) -> CheckResult {
     CheckResult {
@@ -183,6 +184,29 @@ async fn sync_with_secret_header() {
     let history = db.history("guarded.com", 10).unwrap();
     assert_eq!(history.len(), 1);
     assert_eq!(history[0].source, "peer:node-a");
+}
+
+#[test]
+fn resolve_sync_url_basic() {
+    let url = resolve_sync_url("http://127.0.0.1:8080").unwrap();
+    assert_eq!(url.as_str(), "http://127.0.0.1:8080/api/sync");
+}
+
+#[test]
+fn resolve_sync_url_with_trailing_slash() {
+    let url = resolve_sync_url("http://peer.local:9090/").unwrap();
+    assert_eq!(url.as_str(), "http://peer.local:9090/api/sync");
+}
+
+#[test]
+fn resolve_sync_url_with_path() {
+    let url = resolve_sync_url("http://peer.local:9090/some/prefix").unwrap();
+    assert_eq!(url.as_str(), "http://peer.local:9090/api/sync");
+}
+
+#[test]
+fn resolve_sync_url_invalid() {
+    assert!(resolve_sync_url("not a url").is_none());
 }
 
 #[tokio::test]

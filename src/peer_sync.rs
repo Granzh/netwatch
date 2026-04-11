@@ -2,7 +2,8 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use rand::Rng;
-use reqwest::Client;
+use reqwest::{Client, Url};
+use tokio::sync::Semaphore;
 use tokio::task::JoinSet;
 use tokio_util::sync::CancellationToken;
 
@@ -14,9 +15,15 @@ const JITTER_RANGE: u64 = 10;
 
 fn sync_duration(config: &AppConfig) -> Duration {
     let base = config.sync_interval_seconds;
-    let jitter = rand::rng().random_range(0..=JITTER_RANGE * 2);
-    let secs = base.saturating_sub(JITTER_RANGE).saturating_add(jitter);
+    let jitter_range = JITTER_RANGE.min(base);
+    let jitter = rand::rng().random_range(0..=jitter_range * 2);
+    let secs = base.saturating_sub(jitter_range).saturating_add(jitter);
     Duration::from_secs(secs.max(1))
+}
+
+pub fn resolve_sync_url(peer_url: &str) -> Option<Url> {
+    let base = Url::parse(peer_url).ok()?;
+    base.join("/api/sync").ok()
 }
 
 pub async fn run(
@@ -65,16 +72,30 @@ async fn sync_with_peers(
     db: &Arc<Mutex<Db>>,
     our_report: &PeerReport,
 ) {
+    let semaphore = Arc::new(Semaphore::new(config.max_concurrent_syncs));
     let mut set = JoinSet::new();
 
     for peer_url in &config.peers {
+        let url = match resolve_sync_url(peer_url) {
+            Some(u) => u,
+            None => {
+                log::warn!("invalid peer URL: {peer_url}");
+                continue;
+            }
+        };
+
         let client = client.clone();
-        let url = format!("{peer_url}/api/sync");
         let report = our_report.clone();
         let secret = config.api_secret.clone();
+        let permit = Arc::clone(&semaphore);
 
         set.spawn(async move {
-            let mut req = client.post(&url).json(&report);
+            let _permit = match permit.acquire().await {
+                Ok(p) => p,
+                Err(_) => return None,
+            };
+
+            let mut req = client.post(url.as_str()).json(&report);
             if let Some(secret) = &secret {
                 req = req.header("X-Netwatch-Token", secret);
             }
@@ -118,7 +139,7 @@ async fn sync_with_peers(
     while let Some(join_result) = set.join_next().await {
         match join_result {
             Ok(Some(peer)) => all_results.extend(peer.results),
-            Ok(None) => {} // already logged inside task
+            Ok(None) => {}
             Err(e) => log::error!("peer sync task panicked: {e}"),
         }
     }
