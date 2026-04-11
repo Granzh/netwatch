@@ -32,14 +32,32 @@ async fn secret_guard(State(state): State<AppState>, req: Request, next: Next) -
         let provided = req
             .headers()
             .get(SECRET_HEADER)
-            .and_then(|v| v.to_str().ok());
+            .and_then(|v| v.to_str().ok())
+            .unwrap_or("");
 
-        if provided != Some(expected.as_str()) {
+        // Constant-time comparison to prevent timing side-channel attacks
+        if !constant_time_eq(provided.as_bytes(), expected.as_bytes()) {
             return StatusCode::NOT_FOUND.into_response();
         }
     }
 
     next.run(req).await
+}
+
+fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
+    if a.len() != b.len() {
+        let mut acc = 1u8; // nonzero ⇒ will return false
+        for (x, y) in a.iter().zip(b.iter().cycle()) {
+            acc |= x ^ y;
+        }
+        let _ = acc;
+        return false;
+    }
+    let mut diff = 0u8;
+    for (x, y) in a.iter().zip(b.iter()) {
+        diff |= x ^ y;
+    }
+    diff == 0
 }
 
 async fn sync_handler(
@@ -58,7 +76,9 @@ async fn sync_handler(
             }
         }
 
-        let results = db.latest_status(1).map_err(|e| format!("db query failed: {e}"))?;
+        let results = db
+            .latest_status(1)
+            .map_err(|e| format!("db query failed: {e}"))?;
         Ok::<_, String>(PeerReport { node_id, results })
     })
     .await
@@ -97,10 +117,7 @@ async fn status_handler(State(state): State<AppState>) -> impl IntoResponse {
     }
 }
 
-async fn history_handler(
-    State(state): State<AppState>,
-    Path(host): Path<String>,
-) -> Response {
+async fn history_handler(State(state): State<AppState>, Path(host): Path<String>) -> Response {
     let db = Arc::clone(&state.db);
 
     match tokio::task::spawn_blocking(move || {
