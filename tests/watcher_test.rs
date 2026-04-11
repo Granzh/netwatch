@@ -1,5 +1,5 @@
 use netwatch::config::AppConfig;
-use netwatch::watcher::ConfigStore;
+use netwatch::watcher::{ConfigStore, should_debounce};
 use std::time::Duration;
 use tempfile::tempdir;
 
@@ -97,46 +97,41 @@ fn hot_reload_on_file_change() {
 }
 
 #[test]
-fn debounce_suppresses_rapid_reloads() {
-    let dir = tempdir().unwrap();
-    let path = dir.path().join("config.toml");
+fn debounce_first_event_always_passes() {
+    // prev=MAX means no prior event — should never debounce
+    assert!(!should_debounce(u64::MAX, 1_000_000, 5_000_000_000));
+}
 
-    let initial = AppConfig::default();
-    initial.save(&path).unwrap();
+#[test]
+fn debounce_suppresses_within_window() {
+    let debounce_ns = 5_000_000_000; // 5 seconds
+    let first_event = 1_000_000_000; // 1s mark
+    let second_event = 1_200_000_000; // 1.2s mark (200ms later)
 
-    // Large debounce window.
-    let store = ConfigStore::new(&path, Duration::from_millis(5_000)).unwrap();
+    assert!(!should_debounce(u64::MAX, first_event, debounce_ns));
+    assert!(should_debounce(first_event, second_event, debounce_ns));
+}
 
-    // Wait for any spurious startup events to settle and pass through the
-    // debounce gate, so the next intentional write lands inside the window.
-    std::thread::sleep(Duration::from_millis(500));
+#[test]
+fn debounce_allows_after_window_expires() {
+    let debounce_ns = 5_000_000_000; // 5 seconds
+    let first_event = 1_000_000_000; // 1s mark
+    let after_window = 7_000_000_000; // 7s mark (6s later, past 5s window)
 
-    // First write — may or may not pass debounce depending on whether the
-    // watcher fired a startup event. Either way, write a second time
-    // immediately after and verify it is suppressed.
-    let first_write = AppConfig {
-        sources: vec!["https://first.example.com".to_string()],
-        latency_threshold_ms: 10,
-        check_interval_seconds: 1,
-        ..AppConfig::default()
-    };
-    first_write.save(&path).unwrap();
-    std::thread::sleep(Duration::from_millis(200));
+    assert!(!should_debounce(first_event, after_window, debounce_ns));
+}
 
-    let second_write = AppConfig {
-        sources: vec!["https://second.example.com".to_string()],
-        latency_threshold_ms: 20,
-        check_interval_seconds: 2,
-        ..AppConfig::default()
-    };
-    second_write.save(&path).unwrap();
-    std::thread::sleep(Duration::from_millis(300));
+#[test]
+fn debounce_zero_window_never_suppresses() {
+    assert!(!should_debounce(100, 101, 0));
+    assert!(!should_debounce(100, 100, 0));
+}
 
-    // The store should NOT reflect the second write — it must have been
-    // debounced because it arrived within the 5s window of the prior event.
-    let got = store.get();
-    assert_ne!(
-        **got, second_write,
-        "second rapid write should be debounced"
-    );
+#[test]
+fn debounce_exact_boundary_suppresses() {
+    let debounce_ns = 1_000;
+    // Exactly at the boundary edge (999ns elapsed < 1000ns window) — should suppress
+    assert!(should_debounce(1_000, 1_999, debounce_ns));
+    // Exactly at the boundary (1000ns elapsed == 1000ns window) — should pass
+    assert!(!should_debounce(1_000, 2_000, debounce_ns));
 }

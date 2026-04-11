@@ -1,4 +1,4 @@
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use arc_swap::ArcSwap;
 use tokio_util::sync::CancellationToken;
@@ -42,11 +42,40 @@ async fn all_targets_processed_in_one_cycle() {
     let checker = Arc::new(Checker::new(client, "test"));
     let targets = targets_from_config(&cfg);
 
-    let results = check_all(&checker, &targets).await;
+    let results = check_all(&checker, &targets, 10).await;
 
     assert_eq!(results.len(), 3);
     assert!(results.iter().all(|r| r.ok));
-    // wiremock's expect(1) verifies each endpoint was hit exactly once
+}
+
+#[tokio::test]
+async fn concurrency_limited_by_semaphore() {
+    let server = MockServer::start().await;
+
+    for p in ["/1", "/2", "/3", "/4", "/5"] {
+        Mock::given(method("HEAD"))
+            .and(path(p))
+            .respond_with(ResponseTemplate::new(200))
+            .expect(1)
+            .mount(&server)
+            .await;
+    }
+
+    let sources: Vec<String> = ["/1", "/2", "/3", "/4", "/5"]
+        .iter()
+        .map(|p| format!("{}{p}", server.uri()))
+        .collect();
+
+    let cfg = test_config(sources);
+    let client = Arc::new(build_client(&cfg).unwrap());
+    let checker = Arc::new(Checker::new(client, "test"));
+    let targets = targets_from_config(&cfg);
+
+    // limit=2: only 2 tasks run at a time, but all 5 complete
+    let results = check_all(&checker, &targets, 2).await;
+
+    assert_eq!(results.len(), 5);
+    assert!(results.iter().all(|r| r.ok));
 }
 
 #[tokio::test]
@@ -67,7 +96,6 @@ async fn jitter_in_correct_range() {
         );
         seen.insert(secs);
     }
-    // With 200 samples over 6 possible values, we should hit at least 3
     assert!(
         seen.len() >= 3,
         "expected at least 3 distinct jitter values, got {}",
@@ -102,40 +130,56 @@ async fn graceful_shutdown_does_not_panic() {
     let config = Arc::new(ArcSwap::new(Arc::new(cfg.clone())));
     let client = Arc::new(build_client(&cfg).unwrap());
     let checker = Arc::new(Checker::new(client, "test"));
-    let db = Db::open_in_memory().unwrap();
+    let db = Arc::new(Mutex::new(Db::open_in_memory().unwrap()));
     let cancel = CancellationToken::new();
 
-    // Cancel immediately — run() should complete its first cycle then exit
     cancel.cancel();
 
     run(config, checker, db, cancel).await;
-    // If we reach here, shutdown was graceful
 }
 
 #[tokio::test]
-async fn results_saved_to_db() {
+async fn run_writes_results_to_db() {
     let server = MockServer::start().await;
 
     Mock::given(method("HEAD"))
-        .and(path("/db-test"))
+        .and(path("/persist"))
         .respond_with(ResponseTemplate::new(200))
         .mount(&server)
         .await;
 
-    let cfg = test_config(vec![format!("{}/db-test", server.uri())]);
+    let cfg = test_config(vec![format!("{}/persist", server.uri())]);
+    let config = Arc::new(ArcSwap::new(Arc::new(cfg.clone())));
     let client = Arc::new(build_client(&cfg).unwrap());
     let checker = Arc::new(Checker::new(client, "test"));
-    let db = Db::open_in_memory().unwrap();
+    let db = Arc::new(Mutex::new(Db::open_in_memory().unwrap()));
+    let cancel = CancellationToken::new();
 
-    // Use check_all directly to verify results + db insert
-    let targets = targets_from_config(&cfg);
-    let results = check_all(&checker, &targets).await;
+    // Cancel after first cycle completes
+    let cancel_clone = cancel.clone();
+    let db_poll = Arc::clone(&db);
+    tokio::spawn(async move {
+        // Poll until at least one row appears in the DB
+        loop {
+            {
+                let db = db_poll.lock().unwrap();
+                if let Ok(rows) = db.latest_status(1)
+                    && !rows.is_empty()
+                {
+                    cancel_clone.cancel();
+                    return;
+                }
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+        }
+    });
 
-    assert_eq!(results.len(), 1);
-    assert!(results[0].ok);
+    run(config, checker, Arc::clone(&db), cancel).await;
 
-    db.insert(&results[0]).unwrap();
-    let history = db.history(&results[0].host, 10).unwrap();
-    assert_eq!(history.len(), 1);
-    assert!(history[0].ok);
+    // Verify results persisted
+    let db = db.lock().unwrap();
+    let rows = db.latest_status(1).unwrap();
+    assert_eq!(rows.len(), 1);
+    assert!(rows[0].ok);
+    assert!(rows[0].host.contains("127.0.0.1"));
 }

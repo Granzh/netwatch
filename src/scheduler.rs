@@ -1,7 +1,8 @@
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use rand::Rng;
+use tokio::sync::Semaphore;
 use tokio::task::JoinSet;
 use tokio_util::sync::CancellationToken;
 
@@ -28,7 +29,8 @@ pub fn jitter_duration(config: &AppConfig) -> Duration {
     let secs = if jitter == 0 {
         base
     } else {
-        base + rand::rng().random_range(0..=jitter)
+        let jitter_secs = rand::rng().random_range(0..=jitter);
+        base.saturating_add(jitter_secs)
     };
     Duration::from_secs(secs.max(1))
 }
@@ -36,17 +38,19 @@ pub fn jitter_duration(config: &AppConfig) -> Duration {
 pub async fn run(
     config: Arc<arc_swap::ArcSwap<AppConfig>>,
     checker: Arc<Checker>,
-    db: Db,
+    db: Arc<Mutex<Db>>,
     cancel: CancellationToken,
 ) {
     loop {
         let cfg = config.load();
         let targets = targets_from_config(&cfg);
 
-        let results = check_all(&checker, &targets).await;
+        let results = check_all(&checker, &targets, cfg.max_concurrent_checks).await;
 
         for result in &results {
-            if let Err(e) = db.insert(result) {
+            if let Ok(db) = db.lock()
+                && let Err(e) = db.insert(result)
+            {
                 log::error!("db insert failed: {e}");
             }
         }
@@ -63,13 +67,19 @@ pub async fn run(
 pub async fn check_all(
     checker: &Arc<Checker>,
     targets: &[Target],
+    max_concurrent: usize,
 ) -> Vec<crate::models::CheckResult> {
+    let semaphore = Arc::new(Semaphore::new(max_concurrent.max(1)));
     let mut set = JoinSet::new();
 
     for target in targets {
         let checker = Arc::clone(checker);
         let target = target.clone();
-        set.spawn(async move { checker.check(&target).await });
+        let sem = Arc::clone(&semaphore);
+        set.spawn(async move {
+            let _permit = sem.acquire().await.expect("semaphore closed");
+            checker.check(&target).await
+        });
     }
 
     let mut results = Vec::with_capacity(targets.len());
