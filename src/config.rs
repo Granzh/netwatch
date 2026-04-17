@@ -68,7 +68,7 @@ fn node_id_for_port(port: u16) -> String {
 }
 
 fn default_node_id() -> String {
-    node_id_for_port(default_listen_port())
+    String::new()
 }
 
 fn default_sync_interval_seconds() -> u64 {
@@ -105,7 +105,7 @@ impl Default for AppConfig {
             danger_accept_invalid_certs: false,
             listen_port: default_listen_port(),
             api_secret: None,
-            node_id: default_node_id(),
+            node_id: node_id_for_port(default_listen_port()),
             peers: vec![],
             sync_interval_seconds: default_sync_interval_seconds(),
             max_concurrent_syncs: default_max_concurrent_syncs(),
@@ -117,7 +117,7 @@ impl AppConfig {
     pub fn load(path: impl AsRef<Path>) -> Result<Self, ConfigError> {
         let content = fs::read_to_string(path)?;
         let mut config: Self = toml::from_str(&content)?;
-        if config.node_id == default_node_id() && config.listen_port != default_listen_port() {
+        if config.node_id.is_empty() {
             config.node_id = node_id_for_port(config.listen_port);
         }
         Ok(config)
