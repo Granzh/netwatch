@@ -126,7 +126,7 @@ async fn unavailable_peer_does_not_crash() {
     let db = Arc::new(Mutex::new(Db::open_in_memory().unwrap()));
     let cancel = CancellationToken::new();
 
-    // Cancel immediately — should complete one cycle without panicking
+    // Cancel before starting — run should exit immediately without panicking
     cancel.cancel();
 
     netwatch::peer_sync::run(config_arc, client, db, cancel).await;

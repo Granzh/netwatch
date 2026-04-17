@@ -21,6 +21,7 @@ fn load_save_load_roundtrip() {
         peers: vec!["http://peer1:8080".to_string()],
         sync_interval_seconds: 30,
         max_concurrent_syncs: 5,
+        sync_timeout_secs: 30
     };
 
     original.save(&path).unwrap();
@@ -65,6 +66,7 @@ fn load_or_default_returns_existing() {
         peers: vec![],
         sync_interval_seconds: 120,
         max_concurrent_syncs: 5,
+        sync_timeout_secs: 30
     };
     custom.save(&path).unwrap();
 

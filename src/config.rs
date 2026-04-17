@@ -42,6 +42,8 @@ pub struct AppConfig {
     pub sync_interval_seconds: u64,
     #[serde(default = "default_max_concurrent_syncs")]
     pub max_concurrent_syncs: usize,
+    #[serde(default = "default_sync_timeout_secs")]
+    pub sync_timeout_secs: u64,
 }
 
 fn default_check_jitter_seconds() -> u64 {
@@ -79,6 +81,10 @@ fn default_max_concurrent_syncs() -> usize {
     5
 }
 
+fn default_sync_timeout_secs() -> u64 {
+    30
+}
+
 fn default_listen_port() -> u16 {
     8080
 }
@@ -109,6 +115,7 @@ impl Default for AppConfig {
             peers: vec![],
             sync_interval_seconds: default_sync_interval_seconds(),
             max_concurrent_syncs: default_max_concurrent_syncs(),
+            sync_timeout_secs: default_sync_timeout_secs(),
         }
     }
 }

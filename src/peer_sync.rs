@@ -95,6 +95,7 @@ async fn sync_with_peers(
         let report = our_report.clone();
         let secret = config.api_secret.clone();
         let permit = Arc::clone(&semaphore);
+        let timeout = Duration::from_secs(config.sync_timeout_secs);
 
         set.spawn(async move {
             let _permit = match permit.acquire().await {
@@ -102,9 +103,9 @@ async fn sync_with_peers(
                 Err(_) => return None,
             };
 
-            let mut req = client.post(url.as_str()).json(&report);
+            let mut req = client.post(url.as_str()).json(&report).timeout(timeout);
             if let Some(secret) = &secret {
-                req = req.header("X-Netwatch-Token", secret);
+                req = req.header(crate::api::SECRET_HEADER, secret);
             }
 
             let resp = match req.send().await {
