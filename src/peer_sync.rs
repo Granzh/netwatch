@@ -37,7 +37,7 @@ pub async fn run(
 
         if !cfg.peers.is_empty() {
             let our_report = build_local_report(&cfg.node_id, &db);
-            sync_with_peers(&client, &cfg, &db, &our_report).await;
+            sync_with_peers(&client, &cfg, &db, &our_report, &cfg.node_id).await;
         }
 
         let sleep_dur = sync_duration(&cfg);
@@ -54,7 +54,10 @@ fn build_local_report(node_id: &str, db: &Arc<Mutex<Db>>) -> PeerReport {
         .lock()
         .ok()
         .and_then(|db| db.latest_status(1).ok())
-        .unwrap_or_default();
+        .unwrap_or_default()
+        .into_iter()
+        .filter(|r| r.source == node_id)
+        .collect();
 
     PeerReport {
         node_id: node_id.to_string(),
@@ -71,6 +74,7 @@ async fn sync_with_peers(
     config: &AppConfig,
     db: &Arc<Mutex<Db>>,
     our_report: &PeerReport,
+    node_id: &str,
 ) {
     let semaphore = Arc::new(Semaphore::new(config.max_concurrent_syncs));
     let mut set = JoinSet::new();
@@ -121,7 +125,8 @@ async fn sync_with_peers(
                 }
             };
 
-            let source = format!("peer:{}", peer_report.node_id);
+            let peer_node_id = peer_report.node_id.clone();
+            let source = format!("peer:{peer_node_id}");
             let results = peer_report
                 .results
                 .into_iter()
@@ -144,10 +149,16 @@ async fn sync_with_peers(
         }
     }
 
-    if !all_results.is_empty()
+    let own_peer_source = format!("peer:{node_id}");
+    let filtered: Vec<_> = all_results
+        .iter()
+        .filter(|r| r.source != own_peer_source)
+        .collect();
+
+    if !filtered.is_empty()
         && let Ok(db) = db.lock()
     {
-        for result in &all_results {
+        for result in &filtered {
             if let Err(e) = db.insert(result) {
                 log::error!("db insert from peer sync failed: {e}");
             }

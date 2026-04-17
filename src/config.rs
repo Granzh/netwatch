@@ -56,12 +56,19 @@ fn default_request_timeout_secs() -> u64 {
     10
 }
 
-fn default_node_id() -> String {
-    let host = hostname::get()
+fn local_hostname() -> String {
+    hostname::get()
         .ok()
         .and_then(|h| h.into_string().ok())
-        .unwrap_or_else(|| "unknown".to_string());
-    format!("{host}:{}", default_listen_port())
+        .unwrap_or_else(|| "unknown".to_string())
+}
+
+fn node_id_for_port(port: u16) -> String {
+    format!("{}:{port}", local_hostname())
+}
+
+fn default_node_id() -> String {
+    node_id_for_port(default_listen_port())
 }
 
 fn default_sync_interval_seconds() -> u64 {
@@ -109,7 +116,10 @@ impl Default for AppConfig {
 impl AppConfig {
     pub fn load(path: impl AsRef<Path>) -> Result<Self, ConfigError> {
         let content = fs::read_to_string(path)?;
-        let config = toml::from_str(&content)?;
+        let mut config: Self = toml::from_str(&content)?;
+        if config.node_id == default_node_id() && config.listen_port != default_listen_port() {
+            config.node_id = node_id_for_port(config.listen_port);
+        }
         Ok(config)
     }
 
