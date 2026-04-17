@@ -80,6 +80,7 @@ async fn sync_with_peers(
     our_report: &PeerReport,
 ) {
     let semaphore = Arc::new(Semaphore::new(config.max_concurrent_syncs.max(1)));
+    let report = Arc::new(our_report.clone());
     let mut set = JoinSet::new();
 
     for peer_url in &config.peers {
@@ -92,7 +93,7 @@ async fn sync_with_peers(
         };
 
         let client = client.clone();
-        let report = our_report.clone();
+        let report = Arc::clone(&report);
         let secret = config.api_secret.clone();
         let permit = Arc::clone(&semaphore);
         let timeout = Duration::from_secs(config.sync_timeout_secs);
@@ -103,7 +104,7 @@ async fn sync_with_peers(
                 Err(_) => return None,
             };
 
-            let mut req = client.post(url.as_str()).json(&report).timeout(timeout);
+            let mut req = client.post(url.as_str()).json(&*report).timeout(timeout);
             if let Some(secret) = &secret {
                 req = req.header(crate::api::SECRET_HEADER, secret);
             }
