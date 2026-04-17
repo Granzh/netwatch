@@ -18,9 +18,19 @@ use netwatch::{peer_sync, scheduler};
 #[derive(Parser)]
 #[command(name = "netwatch", about = "Network availability monitor", version)]
 struct Cli {
-    #[arg(long, default_value = "netwatch.toml", global = true, help = "Config file path")]
+    #[arg(
+        long,
+        default_value = "netwatch.toml",
+        global = true,
+        help = "Config file path"
+    )]
     config: PathBuf,
-    #[arg(long, default_value = "netwatch.db", global = true, help = "Database file path")]
+    #[arg(
+        long,
+        default_value = "netwatch.db",
+        global = true,
+        help = "Database file path"
+    )]
     db: PathBuf,
     #[command(subcommand)]
     command: Command,
@@ -35,7 +45,12 @@ enum Command {
     /// Show check history for a specific host
     History {
         host: String,
-        #[arg(short = 'n', long, default_value_t = 20, help = "Number of records to show")]
+        #[arg(
+            short = 'n',
+            long,
+            default_value_t = 20,
+            help = "Number of records to show"
+        )]
         limit: u32,
     },
     /// Add a URL to monitored sources
@@ -187,7 +202,11 @@ fn cmd_history(db_path: &Path, host: &str, limit: u32) -> Result<(), Box<dyn std
 fn result_to_row(r: &netwatch::models::CheckResult) -> StatusRow {
     StatusRow {
         host: r.host.clone(),
-        status: if r.ok { "UP".to_string() } else { "DOWN".to_string() },
+        status: if r.ok {
+            "UP".to_string()
+        } else {
+            "DOWN".to_string()
+        },
         latency_ms: r.latency_ms,
         timestamp: r.timestamp.format("%Y-%m-%d %H:%M:%S").to_string(),
         source: r.source.clone(),
