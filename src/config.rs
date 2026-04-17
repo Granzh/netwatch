@@ -34,6 +34,16 @@ pub struct AppConfig {
     pub listen_port: u16,
     #[serde(default)]
     pub api_secret: Option<String>,
+    #[serde(default = "default_node_id")]
+    pub node_id: String,
+    #[serde(default)]
+    pub peers: Vec<String>,
+    #[serde(default = "default_sync_interval_seconds")]
+    pub sync_interval_seconds: u64,
+    #[serde(default = "default_max_concurrent_syncs")]
+    pub max_concurrent_syncs: usize,
+    #[serde(default = "default_sync_timeout_secs")]
+    pub sync_timeout_secs: u64,
 }
 
 fn default_check_jitter_seconds() -> u64 {
@@ -46,6 +56,33 @@ fn default_max_concurrent_checks() -> usize {
 
 fn default_request_timeout_secs() -> u64 {
     10
+}
+
+fn local_hostname() -> String {
+    hostname::get()
+        .ok()
+        .and_then(|h| h.into_string().ok())
+        .unwrap_or_else(|| "unknown".to_string())
+}
+
+fn node_id_for_port(port: u16) -> String {
+    format!("{}:{port}", local_hostname())
+}
+
+fn default_node_id() -> String {
+    String::new()
+}
+
+fn default_sync_interval_seconds() -> u64 {
+    60
+}
+
+fn default_max_concurrent_syncs() -> usize {
+    5
+}
+
+fn default_sync_timeout_secs() -> u64 {
+    30
 }
 
 fn default_listen_port() -> u16 {
@@ -74,6 +111,11 @@ impl Default for AppConfig {
             danger_accept_invalid_certs: false,
             listen_port: default_listen_port(),
             api_secret: None,
+            node_id: node_id_for_port(default_listen_port()),
+            peers: vec![],
+            sync_interval_seconds: default_sync_interval_seconds(),
+            max_concurrent_syncs: default_max_concurrent_syncs(),
+            sync_timeout_secs: default_sync_timeout_secs(),
         }
     }
 }
@@ -81,7 +123,10 @@ impl Default for AppConfig {
 impl AppConfig {
     pub fn load(path: impl AsRef<Path>) -> Result<Self, ConfigError> {
         let content = fs::read_to_string(path)?;
-        let config = toml::from_str(&content)?;
+        let mut config: Self = toml::from_str(&content)?;
+        if config.node_id.is_empty() {
+            config.node_id = node_id_for_port(config.listen_port);
+        }
         Ok(config)
     }
 

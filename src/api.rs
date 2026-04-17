@@ -9,7 +9,7 @@ use axum::{Json, Router, routing};
 use crate::db::Db;
 use crate::models::PeerReport;
 
-const SECRET_HEADER: &str = "X-Netwatch-Token";
+pub const SECRET_HEADER: &str = "X-Netwatch-Token";
 
 #[derive(Clone)]
 pub struct AppState {
@@ -70,14 +70,22 @@ async fn sync_handler(
     match tokio::task::spawn_blocking(move || {
         let db = db.lock().map_err(|e| format!("db lock poisoned: {e}"))?;
 
-        for result in &peer_report.results {
-            if let Err(e) = db.insert(result) {
+        let peer_node_id = &peer_report.node_id;
+        let peer_source = format!("peer:{peer_node_id}");
+        for result in peer_report
+            .results
+            .iter()
+            .filter(|r| r.source == *peer_node_id)
+        {
+            let mut r = result.clone();
+            r.source = peer_source.clone();
+            if let Err(e) = db.insert(&r) {
                 log::error!("db insert from peer sync failed: {e}");
             }
         }
 
         let results = db
-            .latest_status(1)
+            .latest_local_status(&node_id, 1)
             .map_err(|e| format!("db query failed: {e}"))?;
         Ok::<_, String>(PeerReport { node_id, results })
     })

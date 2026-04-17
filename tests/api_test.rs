@@ -17,6 +17,16 @@ fn sample_result(host: &str, ok: bool) -> CheckResult {
     }
 }
 
+fn result_from(host: &str, source: &str) -> CheckResult {
+    CheckResult {
+        host: host.to_string(),
+        ok: true,
+        latency_ms: 10,
+        timestamp: Utc::now(),
+        source: source.to_string(),
+    }
+}
+
 async fn spawn_server(api_secret: Option<String>) -> (String, Arc<Mutex<Db>>) {
     let db = Arc::new(Mutex::new(Db::open_in_memory().unwrap()));
     let state = AppState {
@@ -110,23 +120,17 @@ async fn history_returns_404_for_unknown_host() {
 // --- sync ---
 
 #[tokio::test]
-async fn sync_exchanges_data() {
-    let (base, db) = spawn_open_server().await;
+async fn sync_response_node_id_matches_server() {
+    let (base, _db) = spawn_open_server().await;
 
-    {
-        let db = db.lock().unwrap();
-        db.insert(&sample_result("local-host.com", true)).unwrap();
-    }
-
-    let peer_report = PeerReport {
+    let report = PeerReport {
         node_id: "peer-1".to_string(),
-        results: vec![sample_result("peer-host.com", false)],
+        results: vec![],
     };
-
     let client = reqwest::Client::new();
     let resp = client
         .post(format!("{base}/api/sync"))
-        .json(&peer_report)
+        .json(&report)
         .send()
         .await
         .unwrap();
@@ -134,15 +138,150 @@ async fn sync_exchanges_data() {
 
     let our_report: PeerReport = resp.json().await.unwrap();
     assert_eq!(our_report.node_id, "node-test");
-    assert!(!our_report.results.is_empty());
+}
 
-    // Peer data stored in our DB
+#[tokio::test]
+async fn sync_response_contains_local_data() {
+    let (base, db) = spawn_open_server().await;
+
+    // source must match the server's node_id ("node-test") to appear in the response
     {
         let db = db.lock().unwrap();
-        let history = db.history("peer-host.com", 10).unwrap();
-        assert_eq!(history.len(), 1);
-        assert!(!history[0].ok);
+        db.insert(&result_from("local-host.com", "node-test"))
+            .unwrap();
     }
+
+    let report = PeerReport {
+        node_id: "peer-1".to_string(),
+        results: vec![],
+    };
+    let client = reqwest::Client::new();
+    let our_report: PeerReport = client
+        .post(format!("{base}/api/sync"))
+        .json(&report)
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+
+    let local = our_report
+        .results
+        .iter()
+        .find(|r| r.host == "local-host.com")
+        .unwrap();
+    assert_eq!(local.source, "node-test");
+}
+
+#[tokio::test]
+async fn sync_response_excludes_peer_results() {
+    let (base, db) = spawn_open_server().await;
+
+    // Pre-insert a peer result — it must not appear in the sync response
+    {
+        let db = db.lock().unwrap();
+        db.insert(&result_from("peer-host.com", "peer:other-node"))
+            .unwrap();
+        db.insert(&result_from("local-host.com", "node-test"))
+            .unwrap();
+    }
+
+    let report = PeerReport {
+        node_id: "peer-1".to_string(),
+        results: vec![],
+    };
+    let client = reqwest::Client::new();
+    let our_report: PeerReport = client
+        .post(format!("{base}/api/sync"))
+        .json(&report)
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+
+    assert!(our_report.results.iter().all(|r| r.source == "node-test"));
+    assert!(
+        our_report
+            .results
+            .iter()
+            .any(|r| r.host == "local-host.com")
+    );
+    assert!(!our_report.results.iter().any(|r| r.host == "peer-host.com"));
+}
+
+#[tokio::test]
+async fn sync_stores_peer_results_with_peer_prefix() {
+    let (base, db) = spawn_open_server().await;
+
+    // source matches peer node_id → must be stored as "peer:<node_id>"
+    let report = PeerReport {
+        node_id: "peer-1".to_string(),
+        results: vec![result_from("peer-host.com", "peer-1")],
+    };
+
+    let client = reqwest::Client::new();
+    let resp = client
+        .post(format!("{base}/api/sync"))
+        .json(&report)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 200);
+
+    let history = db.lock().unwrap().history("peer-host.com", 10).unwrap();
+    assert_eq!(history.len(), 1);
+    assert_eq!(history[0].source, "peer:peer-1");
+}
+
+#[tokio::test]
+async fn sync_drops_results_with_foreign_source() {
+    let (base, db) = spawn_open_server().await;
+
+    // source does not match peer node_id → must be filtered out
+    let report = PeerReport {
+        node_id: "peer-1".to_string(),
+        results: vec![result_from("foreign-host.com", "some-other-node")],
+    };
+
+    let client = reqwest::Client::new();
+    let resp = client
+        .post(format!("{base}/api/sync"))
+        .json(&report)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 200);
+
+    let history = db.lock().unwrap().history("foreign-host.com", 10).unwrap();
+    assert!(history.is_empty());
+}
+
+#[tokio::test]
+async fn sync_stores_only_matching_results_from_mixed_report() {
+    let (base, db) = spawn_open_server().await;
+
+    let report = PeerReport {
+        node_id: "peer-1".to_string(),
+        results: vec![
+            result_from("valid-host.com", "peer-1"),       // accepted
+            result_from("foreign-host.com", "other-node"), // dropped
+        ],
+    };
+
+    let client = reqwest::Client::new();
+    client
+        .post(format!("{base}/api/sync"))
+        .json(&report)
+        .send()
+        .await
+        .unwrap();
+
+    let db = db.lock().unwrap();
+    assert_eq!(db.history("valid-host.com", 10).unwrap().len(), 1);
+    assert!(db.history("foreign-host.com", 10).unwrap().is_empty());
 }
 
 #[tokio::test]

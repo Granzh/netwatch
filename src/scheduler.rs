@@ -42,6 +42,10 @@ pub async fn run(
     cancel: CancellationToken,
 ) {
     loop {
+        if cancel.is_cancelled() {
+            break;
+        }
+
         let cfg = config.load();
         let targets = targets_from_config(&cfg);
 

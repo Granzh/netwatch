@@ -104,6 +104,35 @@ impl Db {
         rows.collect::<Result<Vec<_>, _>>().map_err(Into::into)
     }
 
+    /// Returns the most recent local CheckResult per host within the last `since_hours` hours,
+    /// restricted to rows whose source equals `source`.
+    pub fn latest_local_status(
+        &self,
+        source: &str,
+        since_hours: u32,
+    ) -> Result<Vec<CheckResult>, DbError> {
+        let cutoff = Utc::now().timestamp_millis() - since_hours as i64 * 3_600_000;
+        let mut stmt = self.conn.prepare_cached(
+            "SELECT id, ts, host, ok, latency_ms, source
+             FROM checks
+             WHERE ts > ?1
+               AND source = ?2
+               AND id IN (
+                   SELECT MAX(id) FROM checks c1
+                   WHERE c1.ts > ?1
+                     AND c1.source = ?2
+                     AND c1.ts = (
+                         SELECT MAX(c2.ts) FROM checks c2
+                         WHERE c2.host = c1.host AND c2.ts > ?1 AND c2.source = ?2
+                     )
+                   GROUP BY c1.host
+               )
+             ORDER BY host",
+        )?;
+        let rows = stmt.query_map(params![cutoff, source], row_to_check)?;
+        rows.collect::<Result<Vec<_>, _>>().map_err(Into::into)
+    }
+
     /// Returns the last `limit` results for a given host, newest first.
     pub fn history(&self, host: &str, limit: u32) -> Result<Vec<CheckResult>, DbError> {
         let mut stmt = self.conn.prepare_cached(
