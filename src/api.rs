@@ -86,7 +86,10 @@ async fn sync_handler(
 
         let results = db
             .latest_status(1)
-            .map_err(|e| format!("db query failed: {e}"))?;
+            .map_err(|e| format!("db query failed: {e}"))?
+            .into_iter()
+            .filter(|r| r.source == node_id)
+            .collect();
         Ok::<_, String>(PeerReport { node_id, results })
     })
     .await

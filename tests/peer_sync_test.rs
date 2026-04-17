@@ -120,14 +120,18 @@ async fn unavailable_peer_does_not_crash() {
 
     let config_arc = Arc::new(arc_swap::ArcSwap::new(Arc::new(config)));
     let client = reqwest::Client::builder()
-        .timeout(Duration::from_secs(1))
+        .timeout(Duration::from_millis(200))
         .build()
         .unwrap();
     let db = Arc::new(Mutex::new(Db::open_in_memory().unwrap()));
     let cancel = CancellationToken::new();
-
-    // Cancel before starting — run should exit immediately without panicking
-    cancel.cancel();
+    // Let peer_sync::run start and attempt at least one request to the
+    // unavailable peer, then cancel so the test finishes promptly.
+    let cancel_clone = cancel.clone();
+    tokio::spawn(async move {
+        tokio::time::sleep(Duration::from_millis(250)).await;
+        cancel_clone.cancel();
+    });
 
     netwatch::peer_sync::run(config_arc, client, db, cancel).await;
 }

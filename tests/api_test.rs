@@ -144,9 +144,11 @@ async fn sync_response_node_id_matches_server() {
 async fn sync_response_contains_local_data() {
     let (base, db) = spawn_open_server().await;
 
+    // source must match the server's node_id ("node-test") to appear in the response
     {
         let db = db.lock().unwrap();
-        db.insert(&sample_result("local-host.com", true)).unwrap();
+        db.insert(&result_from("local-host.com", "node-test"))
+            .unwrap();
     }
 
     let report = PeerReport {
@@ -164,12 +166,50 @@ async fn sync_response_contains_local_data() {
         .await
         .unwrap();
 
+    let local = our_report
+        .results
+        .iter()
+        .find(|r| r.host == "local-host.com")
+        .unwrap();
+    assert_eq!(local.source, "node-test");
+}
+
+#[tokio::test]
+async fn sync_response_excludes_peer_results() {
+    let (base, db) = spawn_open_server().await;
+
+    // Pre-insert a peer result — it must not appear in the sync response
+    {
+        let db = db.lock().unwrap();
+        db.insert(&result_from("peer-host.com", "peer:other-node"))
+            .unwrap();
+        db.insert(&result_from("local-host.com", "node-test"))
+            .unwrap();
+    }
+
+    let report = PeerReport {
+        node_id: "peer-1".to_string(),
+        results: vec![],
+    };
+    let client = reqwest::Client::new();
+    let our_report: PeerReport = client
+        .post(format!("{base}/api/sync"))
+        .json(&report)
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+
+    assert!(our_report.results.iter().all(|r| r.source == "node-test"));
     assert!(
         our_report
             .results
             .iter()
             .any(|r| r.host == "local-host.com")
     );
+    assert!(!our_report.results.iter().any(|r| r.host == "peer-host.com"));
 }
 
 #[tokio::test]
