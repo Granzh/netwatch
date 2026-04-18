@@ -1,3 +1,4 @@
+use netwatch::config::get_parsed_http_api;
 use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
@@ -132,7 +133,7 @@ async fn cmd_run(config_path: &Path, db_path: &Path) -> Result<(), Box<dyn std::
         api_secret: cfg.api_secret.clone(),
     };
 
-    let addr = SocketAddr::from(([0, 0, 0, 0], cfg.listen_port));
+    let addr = SocketAddr::from((get_parsed_http_api(cfg.http_api.clone()), cfg.listen_port));
     drop(cfg);
 
     let cancel = CancellationToken::new();
