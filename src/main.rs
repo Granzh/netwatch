@@ -56,8 +56,6 @@ enum Command {
     },
     /// Add a URL to monitored sources
     Add {
-        /// Human-readable label (informational only)
-        name: String,
         /// URL to monitor
         url: String,
     },
@@ -102,7 +100,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         Command::Run => cmd_run(&cli.config, &cli.db).await?,
         Command::Status => cmd_status(&cli.db)?,
         Command::History { host, limit } => cmd_history(&cli.db, &host, limit)?,
-        Command::Add { name: _, url } => cmd_add(&cli.config, &url)?,
+        Command::Add { url } => cmd_add(&cli.config, &url)?,
         Command::Remove { url } => cmd_remove(&cli.config, &url)?,
         Command::AddPeer { url } => cmd_add_peer(&cli.config, &url)?,
         Command::RemovePeer { url } => cmd_remove_peer(&cli.config, &url)?,
@@ -141,15 +139,14 @@ async fn cmd_run(config_path: &Path, db_path: &Path) -> Result<(), Box<dyn std::
     let listener = tokio::net::TcpListener::bind(addr).await?;
     log::info!("Listening on {addr}");
     let server_cancel = cancel.clone();
-    tokio::spawn(async move {
+    let server_handle = tokio::spawn(async move {
         axum::serve(listener, router(state))
             .with_graceful_shutdown(async move { server_cancel.cancelled().await })
             .await
-            .expect("server error");
     });
 
     let sched_cancel = cancel.clone();
-    tokio::spawn(scheduler::run(
+    let sched_handle = tokio::spawn(scheduler::run(
         Arc::clone(&config_arc),
         checker,
         Arc::clone(&db),
@@ -157,7 +154,7 @@ async fn cmd_run(config_path: &Path, db_path: &Path) -> Result<(), Box<dyn std::
     ));
 
     let sync_cancel = cancel.clone();
-    tokio::spawn(peer_sync::run(
+    let sync_handle = tokio::spawn(peer_sync::run(
         Arc::clone(&config_arc),
         sync_client,
         Arc::clone(&db),
@@ -167,13 +164,17 @@ async fn cmd_run(config_path: &Path, db_path: &Path) -> Result<(), Box<dyn std::
     tokio::signal::ctrl_c().await?;
     log::info!("Shutting down...");
     cancel.cancel();
-    tokio::time::sleep(Duration::from_millis(500)).await;
+
+    let (server_result, _, _) = tokio::join!(server_handle, sched_handle, sync_handle);
+    if let Ok(Err(e)) = server_result {
+        log::error!("server exited with error: {e}");
+    }
 
     Ok(())
 }
 
 fn cmd_status(db_path: &Path) -> Result<(), Box<dyn std::error::Error>> {
-    let db = Db::open(db_path).map_err(|e| format!("Cannot open DB at {db_path:?}: {e}"))?;
+    let db = Db::open(db_path)?;
     let results = db.latest_status(24)?;
 
     if results.is_empty() {
@@ -187,7 +188,7 @@ fn cmd_status(db_path: &Path) -> Result<(), Box<dyn std::error::Error>> {
 }
 
 fn cmd_history(db_path: &Path, host: &str, limit: u32) -> Result<(), Box<dyn std::error::Error>> {
-    let db = Db::open(db_path).map_err(|e| format!("Cannot open DB at {db_path:?}: {e}"))?;
+    let db = Db::open(db_path)?;
     let results = db.history(host, limit)?;
 
     if results.is_empty() {
@@ -215,7 +216,7 @@ fn result_to_row(r: &netwatch::models::CheckResult) -> StatusRow {
 }
 
 fn cmd_add(config_path: &Path, url: &str) -> Result<(), Box<dyn std::error::Error>> {
-    let mut config = AppConfig::load_or_default(config_path);
+    let mut config = AppConfig::load(config_path)?;
     if config.sources.iter().any(|s| s == url) {
         println!("Already monitored: {url}");
         return Ok(());
@@ -227,7 +228,7 @@ fn cmd_add(config_path: &Path, url: &str) -> Result<(), Box<dyn std::error::Erro
 }
 
 fn cmd_remove(config_path: &Path, url: &str) -> Result<(), Box<dyn std::error::Error>> {
-    let mut config = AppConfig::load_or_default(config_path);
+    let mut config = AppConfig::load(config_path)?;
     let before = config.sources.len();
     config.sources.retain(|s| s != url);
     if config.sources.len() == before {
@@ -240,7 +241,7 @@ fn cmd_remove(config_path: &Path, url: &str) -> Result<(), Box<dyn std::error::E
 }
 
 fn cmd_add_peer(config_path: &Path, url: &str) -> Result<(), Box<dyn std::error::Error>> {
-    let mut config = AppConfig::load_or_default(config_path);
+    let mut config = AppConfig::load(config_path)?;
     if config.peers.iter().any(|p| p == url) {
         println!("Peer already present: {url}");
         return Ok(());
@@ -252,7 +253,7 @@ fn cmd_add_peer(config_path: &Path, url: &str) -> Result<(), Box<dyn std::error:
 }
 
 fn cmd_remove_peer(config_path: &Path, url: &str) -> Result<(), Box<dyn std::error::Error>> {
-    let mut config = AppConfig::load_or_default(config_path);
+    let mut config = AppConfig::load(config_path)?;
     let before = config.peers.len();
     config.peers.retain(|p| p != url);
     if config.peers.len() == before {
@@ -265,7 +266,7 @@ fn cmd_remove_peer(config_path: &Path, url: &str) -> Result<(), Box<dyn std::err
 }
 
 fn cmd_list(config_path: &Path) -> Result<(), Box<dyn std::error::Error>> {
-    let config = AppConfig::load_or_default(config_path);
+    let config = AppConfig::load(config_path)?;
 
     println!("Node ID:           {}", config.node_id);
     println!("Listen port:       {}", config.listen_port);

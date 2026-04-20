@@ -40,7 +40,18 @@ pub async fn run(
         let cfg = config.load();
 
         if !cfg.peers.is_empty() {
-            let our_report = build_local_report(&cfg.node_id, &db);
+            let node_id = cfg.node_id.clone();
+            let db_arc = Arc::clone(&db);
+            let our_report =
+                match tokio::task::spawn_blocking(move || build_local_report(&node_id, &db_arc))
+                    .await
+                {
+                    Ok(report) => report,
+                    Err(e) => {
+                        log::error!("build_local_report task panicked: {e}");
+                        continue;
+                    }
+                };
             sync_with_peers(&client, &cfg, &db, &our_report).await;
         }
 
@@ -155,13 +166,23 @@ async fn sync_with_peers(
         }
     }
 
-    if !all_results.is_empty()
-        && let Ok(db) = db.lock()
-    {
-        for result in &all_results {
-            if let Err(e) = db.insert(result) {
-                log::error!("db insert from peer sync failed: {e}");
-            }
+    if !all_results.is_empty() {
+        let db = Arc::clone(db);
+        match tokio::task::spawn_blocking(move || {
+            db.lock()
+                .map_err(|_| "mutex poisoned".to_string())
+                .and_then(|guard| {
+                    for result in &all_results {
+                        guard.insert(result).map_err(|e| e.to_string())?;
+                    }
+                    Ok(())
+                })
+        })
+        .await
+        {
+            Ok(Ok(())) => {}
+            Ok(Err(e)) => log::error!("db insert from peer sync failed: {e}"),
+            Err(e) => log::error!("db insert task panicked: {e}"),
         }
     }
 }
