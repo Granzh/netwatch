@@ -71,8 +71,21 @@ impl Db {
 
     pub fn insert_batch(&self, results: &[CheckResult]) -> Result<(), DbError> {
         let tx = self.conn.unchecked_transaction()?;
-        for result in results {
-            self.insert(result)?;
+        {
+            let mut stmt = tx.prepare_cached(
+                "INSERT INTO checks (ts, host, ok, latency_ms, source) VALUES (?1, ?2, ?3, ?4, ?5)",
+            )?;
+            for result in results {
+                let ts = result.timestamp.timestamp_millis();
+                let ok = result.ok as i32;
+                stmt.execute(params![
+                    ts,
+                    result.host,
+                    ok,
+                    result.latency_ms,
+                    result.source
+                ])?;
+            }
         }
         tx.commit()?;
         Ok(())

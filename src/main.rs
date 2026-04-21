@@ -166,9 +166,18 @@ async fn cmd_run(config_path: &Path, db_path: &Path) -> Result<(), Box<dyn std::
     log::info!("Shutting down...");
     cancel.cancel();
 
-    let (server_result, _, _) = tokio::join!(server_handle, sched_handle, sync_handle);
-    if let Ok(Err(e)) = server_result {
-        log::error!("server exited with error: {e}");
+    let (server_result, sched_result, sync_result) =
+        tokio::join!(server_handle, sched_handle, sync_handle);
+    match server_result {
+        Ok(Ok(())) => {}
+        Ok(Err(e)) => log::error!("server exited with error: {e}"),
+        Err(e) => log::error!("server task panicked: {e}"),
+    }
+    if let Err(e) = sched_result {
+        log::error!("scheduler task panicked: {e}");
+    }
+    if let Err(e) = sync_result {
+        log::error!("peer sync task panicked: {e}");
     }
 
     Ok(())

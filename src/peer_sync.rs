@@ -170,10 +170,8 @@ async fn sync_with_peers(
         let db = Arc::clone(db);
         match tokio::task::spawn_blocking(move || match db.lock() {
             Ok(guard) => {
-                for result in &all_results {
-                    if let Err(e) = guard.insert(result) {
-                        log::error!("db insert from peer sync failed: {e}");
-                    }
+                if let Err(e) = guard.insert_batch(&all_results) {
+                    log::error!("db batch insert from peer sync failed: {e}");
                 }
             }
             Err(_) => log::error!("db mutex poisoned"),
