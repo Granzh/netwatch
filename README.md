@@ -38,9 +38,7 @@ Downloads the latest release binary, creates a `netwatch` system user, writes a
 default config to `/etc/netwatch/config.toml`, and registers a systemd service:
 
 ```bash
-curl -fsSL 
-https://raw.githubusercontent.com/Granzh/netwatch/main/deploy/install.sh |
-sudo bash
+curl -fsSL https://raw.githubusercontent.com/Granzh/netwatch/main/deploy/install.sh | sudo bash
 ```
 
 To pin a specific version:
@@ -52,9 +50,7 @@ sudo VERSION=v0.2.0 bash <(curl -fsSL .../install.sh)
 To uninstall (keeps data and config by default):
 
 ```bash
-curl -fsSL
-https://raw.githubusercontent.com/Granzh/netwatch/main/deploy/uninstall.sh |
-sudo bash
+curl -fsSL https://raw.githubusercontent.com/Granzh/netwatch/main/deploy/uninstall.sh | sudo bash
 # To also delete config and database:
 sudo PURGE=1 bash <(curl -fsSL .../uninstall.sh)
 ```

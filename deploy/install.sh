@@ -91,7 +91,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 if [ -f "${SCRIPT_DIR}/netwatch.service" ]; then
     install -m 0644 "${SCRIPT_DIR}/netwatch.service" "$SERVICE_FILE"
 else
-    curl -fsSL "https://raw.githubusercontent.com/${REPO}/main/deploy/netwatch.service" \
+    curl -fsSL "https://raw.githubusercontent.com/${REPO}/${VERSION}/deploy/netwatch.service" \
         -o "$SERVICE_FILE"
     chmod 0644 "$SERVICE_FILE"
 fi
