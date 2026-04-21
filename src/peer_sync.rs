@@ -68,11 +68,8 @@ fn build_local_report(node_id: &str, db: &Arc<Mutex<Db>>) -> PeerReport {
     let results = db
         .lock()
         .ok()
-        .and_then(|db| db.latest_status(1).ok())
-        .unwrap_or_default()
-        .into_iter()
-        .filter(|r| r.source == node_id)
-        .collect();
+        .and_then(|db| db.latest_local_status(node_id, 1).ok())
+        .unwrap_or_default();
 
     PeerReport {
         node_id: node_id.to_string(),
