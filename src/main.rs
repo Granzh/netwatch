@@ -251,7 +251,7 @@ fn cmd_remove(config_path: &Path, url: &str) -> Result<(), Box<dyn std::error::E
     let mut config = match AppConfig::load(config_path) {
         Ok(c) => c,
         Err(ConfigError::Io(e)) if e.kind() == std::io::ErrorKind::NotFound => {
-            println!("Not found: {url}");
+            println!("Config file not found; nothing to remove.");
             return Ok(());
         }
         Err(e) => return Err(e.into()),
@@ -283,7 +283,7 @@ fn cmd_remove_peer(config_path: &Path, url: &str) -> Result<(), Box<dyn std::err
     let mut config = match AppConfig::load(config_path) {
         Ok(c) => c,
         Err(ConfigError::Io(e)) if e.kind() == std::io::ErrorKind::NotFound => {
-            println!("Peer not found: {url}");
+            println!("Config file not found: {}", config_path.display());
             return Ok(());
         }
         Err(e) => return Err(e.into()),
