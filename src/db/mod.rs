@@ -69,6 +69,15 @@ impl Db {
         Ok(())
     }
 
+    pub fn insert_batch(&self, results: &[CheckResult]) -> Result<(), DbError> {
+        let tx = self.conn.unchecked_transaction()?;
+        for result in results {
+            self.insert(result)?;
+        }
+        tx.commit()?;
+        Ok(())
+    }
+
     pub fn insert(&self, result: &CheckResult) -> Result<(), DbError> {
         let ts = result.timestamp.timestamp_millis();
         let ok = result.ok as i32;

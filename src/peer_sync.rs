@@ -168,20 +168,19 @@ async fn sync_with_peers(
 
     if !all_results.is_empty() {
         let db = Arc::clone(db);
-        match tokio::task::spawn_blocking(move || {
-            db.lock()
-                .map_err(|_| "mutex poisoned".to_string())
-                .and_then(|guard| {
-                    for result in &all_results {
-                        guard.insert(result).map_err(|e| e.to_string())?;
+        match tokio::task::spawn_blocking(move || match db.lock() {
+            Ok(guard) => {
+                for result in &all_results {
+                    if let Err(e) = guard.insert(result) {
+                        log::error!("db insert from peer sync failed: {e}");
                     }
-                    Ok(())
-                })
+                }
+            }
+            Err(_) => log::error!("db mutex poisoned"),
         })
         .await
         {
-            Ok(Ok(())) => {}
-            Ok(Err(e)) => log::error!("db insert from peer sync failed: {e}"),
+            Ok(()) => {}
             Err(e) => log::error!("db insert task panicked: {e}"),
         }
     }

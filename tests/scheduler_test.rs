@@ -183,3 +183,60 @@ async fn run_writes_results_to_db() {
     assert!(rows[0].ok);
     assert!(rows[0].host.contains("127.0.0.1"));
 }
+
+#[tokio::test]
+async fn run_persists_multiple_results_in_one_cycle() {
+    let server = MockServer::start().await;
+    // normalize_host strips path, so all three URLs share the same host key
+    let host = format!("127.0.0.1:{}", server.address().port());
+
+    for p in ["/m1", "/m2", "/m3"] {
+        Mock::given(method("HEAD"))
+            .and(path(p))
+            .respond_with(ResponseTemplate::new(200))
+            .mount(&server)
+            .await;
+    }
+
+    let sources: Vec<String> = ["/m1", "/m2", "/m3"]
+        .iter()
+        .map(|p| format!("{}{p}", server.uri()))
+        .collect();
+
+    let cfg = test_config(sources);
+    let config = Arc::new(ArcSwap::new(Arc::new(cfg.clone())));
+    let client = Arc::new(build_client(&cfg).unwrap());
+    let checker = Arc::new(Checker::new(client, "test"));
+    let db = Arc::new(Mutex::new(Db::open_in_memory().unwrap()));
+    let cancel = CancellationToken::new();
+
+    let cancel_clone = cancel.clone();
+    let db_poll = Arc::clone(&db);
+    tokio::spawn(async move {
+        // wait until at least one row appears (first cycle completed)
+        loop {
+            {
+                let db = db_poll.lock().unwrap();
+                if let Ok(rows) = db.latest_status(1)
+                    && !rows.is_empty()
+                {
+                    cancel_clone.cancel();
+                    return;
+                }
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+        }
+    });
+
+    run(config, checker, Arc::clone(&db), cancel).await;
+
+    // All three sources map to the same host; history returns every row for that host
+    let db = db.lock().unwrap();
+    let rows = db.history(&host, 10).unwrap();
+    assert_eq!(
+        rows.len(),
+        3,
+        "batch insert should persist all results from one cycle"
+    );
+    assert!(rows.iter().all(|r| r.ok));
+}

@@ -1,4 +1,4 @@
-use netwatch::config::get_parsed_http_api;
+use netwatch::config::{ConfigError, parse_listen_addr};
 use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
@@ -131,7 +131,8 @@ async fn cmd_run(config_path: &Path, db_path: &Path) -> Result<(), Box<dyn std::
         api_secret: cfg.api_secret.clone(),
     };
 
-    let addr = SocketAddr::from((get_parsed_http_api(cfg.http_api.clone()), cfg.listen_port));
+    let ip = parse_listen_addr(&cfg.http_api)?;
+    let addr = SocketAddr::from((ip, cfg.listen_port));
     drop(cfg);
 
     let cancel = CancellationToken::new();
@@ -216,7 +217,11 @@ fn result_to_row(r: &netwatch::models::CheckResult) -> StatusRow {
 }
 
 fn cmd_add(config_path: &Path, url: &str) -> Result<(), Box<dyn std::error::Error>> {
-    let mut config = AppConfig::load(config_path)?;
+    let mut config = match AppConfig::load(config_path) {
+        Ok(c) => c,
+        Err(ConfigError::Io(e)) if e.kind() == std::io::ErrorKind::NotFound => AppConfig::default(),
+        Err(e) => return Err(e.into()),
+    };
     if config.sources.iter().any(|s| s == url) {
         println!("Already monitored: {url}");
         return Ok(());
@@ -269,7 +274,10 @@ fn cmd_list(config_path: &Path) -> Result<(), Box<dyn std::error::Error>> {
     let config = AppConfig::load(config_path)?;
 
     println!("Node ID:           {}", config.node_id);
-    println!("Listen port:       {}", config.listen_port);
+    println!(
+        "Listen address:    {}:{}",
+        config.http_api, config.listen_port
+    );
     println!(
         "Check interval:    {}s (±{}s jitter)",
         config.check_interval_seconds, config.check_jitter_seconds

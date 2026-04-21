@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 use std::fs;
-use std::net::Ipv4Addr;
+use std::net::IpAddr;
 use std::path::Path;
 use thiserror::Error;
 
@@ -14,6 +14,13 @@ pub enum ConfigError {
 
     #[error("Failed to serialize config: {0}")]
     Serialize(#[from] toml::ser::Error),
+
+    #[error("invalid listen address {addr:?}: {source}")]
+    InvalidListenAddress {
+        addr: String,
+        #[source]
+        source: std::net::AddrParseError,
+    },
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq)]
@@ -100,9 +107,12 @@ fn default_true() -> bool {
     true
 }
 
-pub fn get_parsed_http_api(str: String) -> Ipv4Addr {
-    let ip: Ipv4Addr = str.parse().unwrap();
-    ip
+/// Parses `addr` as an IPv4 or IPv6 address, returning a structured error on failure.
+pub fn parse_listen_addr(addr: &str) -> Result<IpAddr, ConfigError> {
+    addr.parse().map_err(|e| ConfigError::InvalidListenAddress {
+        addr: addr.to_string(),
+        source: e,
+    })
 }
 
 impl Default for AppConfig {
