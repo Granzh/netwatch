@@ -1,0 +1,49 @@
+#!/bin/sh
+set -e
+
+SERVICE_USER="netwatch"
+DATA_DIR="/var/lib/netwatch"
+CONFIG_DIR="/etc/netwatch"
+
+# Create system user if it doesn't exist
+if ! id "$SERVICE_USER" > /dev/null 2>&1; then
+    useradd -r -s /sbin/nologin -d "$DATA_DIR" -M "$SERVICE_USER"
+fi
+
+# Ensure directories exist with correct ownership
+install -d -m 0755 -o "$SERVICE_USER" -g "$SERVICE_USER" "$DATA_DIR"
+install -d -m 0755 "$CONFIG_DIR"
+
+# Write default config if absent
+if [ ! -f "${CONFIG_DIR}/config.toml" ]; then
+    cat > "${CONFIG_DIR}/config.toml" << 'EOF'
+# Hosts to monitor
+sources = [
+    "https://www.google.com",
+    "https://www.cloudflare.com",
+]
+
+# Latency above this threshold (ms) is treated as degraded
+latency_threshold_ms = 500
+
+# How often to probe each source (seconds)
+check_interval_seconds = 60
+
+# Random jitter added to the interval (seconds)
+check_jitter_seconds = 5
+
+# HTTP API listen address
+http_api = "127.0.0.1"
+listen_port = 8080
+
+# Peer nodes for mesh sync (leave empty for standalone)
+peers = []
+sync_interval_seconds = 60
+EOF
+    chown root:"$SERVICE_USER" "${CONFIG_DIR}/config.toml"
+    chmod 0640 "${CONFIG_DIR}/config.toml"
+fi
+
+systemctl daemon-reload
+systemctl enable netwatch
+systemctl start netwatch || true

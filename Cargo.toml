@@ -27,6 +27,24 @@ env_logger = "0.11"
 tempfile = "3"
 wiremock = "0.6"
 
+[package.metadata.deb]
+maintainer = "Granzh <kbolokhov@gmail.com>"
+copyright = "2026, Granzh"
+license-file = ["LICENSE", "0"]
+extended-description = """\
+Netwatch is a lightweight, distributed network availability monitor.
+Each node probes configured HTTP endpoints and synchronises results
+with peer nodes via a gossip protocol."""
+depends = "$auto"
+section = "net"
+priority = "optional"
+assets = [
+    ["target/x86_64-unknown-linux-musl/release/netwatch", "usr/local/bin/netwatch", "755"],
+    ["deploy/netwatch.service", "lib/systemd/system/netwatch.service", "644"],
+]
+maintainer-scripts = "deploy/maintainer-scripts"
+systemd-units = { enable = false }
+
 [profile.release]
 strip = true
 opt-level = "z"
