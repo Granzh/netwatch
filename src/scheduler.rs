@@ -51,11 +51,18 @@ pub async fn run(
 
         let results = check_all(&checker, &targets, cfg.max_concurrent_checks).await;
 
-        for result in &results {
-            if let Ok(db) = db.lock()
-                && let Err(e) = db.insert(result)
+        if !results.is_empty() {
+            let db = Arc::clone(&db);
+            match tokio::task::spawn_blocking(move || {
+                db.lock()
+                    .map_err(|_| "mutex poisoned".to_string())
+                    .and_then(|guard| guard.insert_batch(&results).map_err(|e| e.to_string()))
+            })
+            .await
             {
-                log::error!("db insert failed: {e}");
+                Ok(Ok(())) => {}
+                Ok(Err(e)) => log::error!("db batch insert failed: {e}"),
+                Err(e) => log::error!("db insert task panicked: {e}"),
             }
         }
 

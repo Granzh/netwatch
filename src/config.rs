@@ -1,5 +1,6 @@
 use serde::{Deserialize, Serialize};
 use std::fs;
+use std::net::IpAddr;
 use std::path::Path;
 use thiserror::Error;
 
@@ -13,6 +14,13 @@ pub enum ConfigError {
 
     #[error("Failed to serialize config: {0}")]
     Serialize(#[from] toml::ser::Error),
+
+    #[error("invalid listen address {addr:?}: {source}")]
+    InvalidListenAddress {
+        addr: String,
+        #[source]
+        source: std::net::AddrParseError,
+    },
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq)]
@@ -44,6 +52,12 @@ pub struct AppConfig {
     pub max_concurrent_syncs: usize,
     #[serde(default = "default_sync_timeout_secs")]
     pub sync_timeout_secs: u64,
+    #[serde(default = "default_http_api")]
+    pub http_api: String,
+}
+
+fn default_http_api() -> String {
+    "127.0.0.1".to_string()
 }
 
 fn default_check_jitter_seconds() -> u64 {
@@ -93,6 +107,14 @@ fn default_true() -> bool {
     true
 }
 
+/// Parses `addr` as an IPv4 or IPv6 address, returning a structured error on failure.
+pub fn parse_listen_addr(addr: &str) -> Result<IpAddr, ConfigError> {
+    addr.parse().map_err(|e| ConfigError::InvalidListenAddress {
+        addr: addr.to_string(),
+        source: e,
+    })
+}
+
 impl Default for AppConfig {
     fn default() -> Self {
         Self {
@@ -116,6 +138,7 @@ impl Default for AppConfig {
             sync_interval_seconds: default_sync_interval_seconds(),
             max_concurrent_syncs: default_max_concurrent_syncs(),
             sync_timeout_secs: default_sync_timeout_secs(),
+            http_api: default_http_api(),
         }
     }
 }

@@ -1,4 +1,5 @@
-use netwatch::config::AppConfig;
+use netwatch::config::{AppConfig, parse_listen_addr};
+use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 use tempfile::tempdir;
 
 #[test]
@@ -9,6 +10,7 @@ fn load_save_load_roundtrip() {
     let original = AppConfig {
         sources: vec!["https://example.com".to_string()],
         latency_threshold_ms: 200,
+        http_api: "127.0.0.1".to_string(),
         check_interval_seconds: 30,
         check_jitter_seconds: 3,
         max_concurrent_checks: 5,
@@ -59,6 +61,7 @@ fn load_or_default_returns_existing() {
         max_concurrent_checks: 20,
         request_timeout_secs: 15,
         follow_redirects: false,
+        http_api: "127.0.0.1".to_string(),
         danger_accept_invalid_certs: true,
         listen_port: 3000,
         api_secret: None,
@@ -72,4 +75,55 @@ fn load_or_default_returns_existing() {
 
     let loaded = AppConfig::load_or_default(&path);
     assert_eq!(loaded, custom);
+}
+
+#[test]
+fn parse_listen_addr_ipv4() {
+    let ip = parse_listen_addr("127.0.0.1").unwrap();
+    assert_eq!(ip, IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)));
+}
+
+#[test]
+fn parse_listen_addr_ipv4_wildcard() {
+    let ip = parse_listen_addr("0.0.0.0").unwrap();
+    assert_eq!(ip, IpAddr::V4(Ipv4Addr::UNSPECIFIED));
+}
+
+#[test]
+fn parse_listen_addr_ipv6() {
+    let ip = parse_listen_addr("::1").unwrap();
+    assert_eq!(ip, IpAddr::V6(Ipv6Addr::LOCALHOST));
+}
+
+#[test]
+fn parse_listen_addr_ipv6_wildcard() {
+    let ip = parse_listen_addr("::").unwrap();
+    assert_eq!(ip, IpAddr::V6(Ipv6Addr::UNSPECIFIED));
+}
+
+#[test]
+fn parse_listen_addr_invalid_returns_error() {
+    let err = parse_listen_addr("not-an-ip").unwrap_err();
+    assert!(err.to_string().contains("not-an-ip"));
+}
+
+#[test]
+fn load_returns_error_on_missing_file() {
+    let dir = tempdir().unwrap();
+    let path = dir.path().join("nonexistent.toml");
+    let err = AppConfig::load(&path).unwrap_err();
+    assert!(
+        matches!(err, netwatch::config::ConfigError::Io(ref e) if e.kind() == std::io::ErrorKind::NotFound)
+    );
+}
+
+#[test]
+fn load_returns_error_on_invalid_toml() {
+    let dir = tempdir().unwrap();
+    let path = dir.path().join("bad.toml");
+    std::fs::write(&path, "not = [valid toml syntax {{{{").unwrap();
+    assert!(matches!(
+        AppConfig::load(&path).unwrap_err(),
+        netwatch::config::ConfigError::Parse(_)
+    ));
 }
