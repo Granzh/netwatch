@@ -225,12 +225,18 @@ fn result_to_row(r: &netwatch::models::CheckResult) -> StatusRow {
     }
 }
 
+fn load_config_or_default(path: &Path) -> Result<AppConfig, Box<dyn std::error::Error>> {
+    match AppConfig::load(path) {
+        Ok(c) => Ok(c),
+        Err(ConfigError::Io(e)) if e.kind() == std::io::ErrorKind::NotFound => {
+            Ok(AppConfig::default())
+        }
+        Err(e) => Err(e.into()),
+    }
+}
+
 fn cmd_add(config_path: &Path, url: &str) -> Result<(), Box<dyn std::error::Error>> {
-    let mut config = match AppConfig::load(config_path) {
-        Ok(c) => c,
-        Err(ConfigError::Io(e)) if e.kind() == std::io::ErrorKind::NotFound => AppConfig::default(),
-        Err(e) => return Err(e.into()),
-    };
+    let mut config = load_config_or_default(config_path)?;
     if config.sources.iter().any(|s| s == url) {
         println!("Already monitored: {url}");
         return Ok(());
@@ -242,7 +248,14 @@ fn cmd_add(config_path: &Path, url: &str) -> Result<(), Box<dyn std::error::Erro
 }
 
 fn cmd_remove(config_path: &Path, url: &str) -> Result<(), Box<dyn std::error::Error>> {
-    let mut config = AppConfig::load(config_path)?;
+    let mut config = match AppConfig::load(config_path) {
+        Ok(c) => c,
+        Err(ConfigError::Io(e)) if e.kind() == std::io::ErrorKind::NotFound => {
+            println!("Not found: {url}");
+            return Ok(());
+        }
+        Err(e) => return Err(e.into()),
+    };
     let before = config.sources.len();
     config.sources.retain(|s| s != url);
     if config.sources.len() == before {
@@ -255,7 +268,7 @@ fn cmd_remove(config_path: &Path, url: &str) -> Result<(), Box<dyn std::error::E
 }
 
 fn cmd_add_peer(config_path: &Path, url: &str) -> Result<(), Box<dyn std::error::Error>> {
-    let mut config = AppConfig::load(config_path)?;
+    let mut config = load_config_or_default(config_path)?;
     if config.peers.iter().any(|p| p == url) {
         println!("Peer already present: {url}");
         return Ok(());
@@ -267,7 +280,14 @@ fn cmd_add_peer(config_path: &Path, url: &str) -> Result<(), Box<dyn std::error:
 }
 
 fn cmd_remove_peer(config_path: &Path, url: &str) -> Result<(), Box<dyn std::error::Error>> {
-    let mut config = AppConfig::load(config_path)?;
+    let mut config = match AppConfig::load(config_path) {
+        Ok(c) => c,
+        Err(ConfigError::Io(e)) if e.kind() == std::io::ErrorKind::NotFound => {
+            println!("Peer not found: {url}");
+            return Ok(());
+        }
+        Err(e) => return Err(e.into()),
+    };
     let before = config.peers.len();
     config.peers.retain(|p| p != url);
     if config.peers.len() == before {
@@ -280,13 +300,11 @@ fn cmd_remove_peer(config_path: &Path, url: &str) -> Result<(), Box<dyn std::err
 }
 
 fn cmd_list(config_path: &Path) -> Result<(), Box<dyn std::error::Error>> {
-    let config = AppConfig::load(config_path)?;
+    let config = load_config_or_default(config_path)?;
+    let addr = SocketAddr::from((parse_listen_addr(&config.http_api)?, config.listen_port));
 
     println!("Node ID:           {}", config.node_id);
-    println!(
-        "Listen address:    {}:{}",
-        config.http_api, config.listen_port
-    );
+    println!("Listen address:    {addr}");
     println!(
         "Check interval:    {}s (±{}s jitter)",
         config.check_interval_seconds, config.check_jitter_seconds
