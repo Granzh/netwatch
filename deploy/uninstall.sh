@@ -5,6 +5,7 @@ BINARY="/usr/local/bin/netwatch"
 CONFIG_DIR="/etc/netwatch"
 DATA_DIR="/var/lib/netwatch"
 SERVICE_FILE="/etc/systemd/system/netwatch.service"
+DEB_SERVICE_FILE="/lib/systemd/system/netwatch.service"
 SERVICE_USER="netwatch"
 
 BOLD="\033[1m"
@@ -32,11 +33,15 @@ if systemctl is-enabled --quiet netwatch 2>/dev/null; then
 fi
 
 # ── remove unit file ──────────────────────────────────────────────────────────
-if [ -f "$SERVICE_FILE" ]; then
-    rm -f "$SERVICE_FILE"
-    systemctl daemon-reload
-    ok "Systemd unit removed"
-fi
+UNIT_REMOVED=0
+for unit in "$SERVICE_FILE" "$DEB_SERVICE_FILE"; do
+    if [ -f "$unit" ]; then
+        rm -f "$unit"
+        ok "Systemd unit removed: ${unit}"
+        UNIT_REMOVED=1
+    fi
+done
+[ "$UNIT_REMOVED" -eq 1 ] && systemctl daemon-reload
 
 # ── remove binary ─────────────────────────────────────────────────────────────
 if [ -f "$BINARY" ]; then

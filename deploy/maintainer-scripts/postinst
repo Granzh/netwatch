@@ -7,7 +7,8 @@ CONFIG_DIR="/etc/netwatch"
 
 # Create system user and matching group if they don't exist
 if ! id "$SERVICE_USER" > /dev/null 2>&1; then
-    useradd -r -U -s /sbin/nologin -d "$DATA_DIR" -M "$SERVICE_USER"
+    NOLOGIN=$(command -v nologin 2>/dev/null || echo /usr/sbin/nologin)
+    useradd -r -U -s "$NOLOGIN" -d "$DATA_DIR" -M "$SERVICE_USER"
 fi
 
 # Ensure directories exist with correct ownership
@@ -44,6 +45,8 @@ EOF
     chmod 0640 "${CONFIG_DIR}/config.toml"
 fi
 
-systemctl daemon-reload
-systemctl enable netwatch
-systemctl start netwatch || true
+if command -v systemctl > /dev/null 2>&1 && [ -d /run/systemd/system ]; then
+    systemctl daemon-reload
+    systemctl enable netwatch
+    systemctl start netwatch || true
+fi

@@ -29,8 +29,17 @@ if [ -z "${VERSION:-}" ]; then
 fi
 info "Installing netwatch ${VERSION}"
 
+# ── detect architecture ───────────────────────────────────────────────────────
+ARCH=$(uname -m)
+case "$ARCH" in
+    x86_64)  RUST_TARGET="x86_64-unknown-linux-musl" ;;
+    aarch64) RUST_TARGET="aarch64-unknown-linux-musl" ;;
+    armv7l)  RUST_TARGET="armv7-unknown-linux-musleabihf" ;;
+    *) die "Unsupported architecture: ${ARCH}" ;;
+esac
+
 # ── download binary ────────────────────────────────────────────────────────────
-ARCHIVE="netwatch-${VERSION}-x86_64-unknown-linux-musl.tar.gz"
+ARCHIVE="netwatch-${VERSION}-${RUST_TARGET}.tar.gz"
 URL="https://github.com/${REPO}/releases/download/${VERSION}/${ARCHIVE}"
 TMP=$(mktemp -d)
 trap 'rm -rf "$TMP"' EXIT
@@ -42,8 +51,16 @@ install -m 0755 "${TMP}/${BINARY}" "${INSTALL_DIR}/${BINARY}"
 ok "Binary installed to ${INSTALL_DIR}/${BINARY}"
 
 # ── system user ───────────────────────────────────────────────────────────────
+if ! getent group "$SERVICE_USER" >/dev/null; then
+    groupadd -r "$SERVICE_USER"
+    ok "Created system group '${SERVICE_USER}'"
+else
+    info "Group '${SERVICE_USER}' already exists, skipping"
+fi
+
+NOLOGIN=$(command -v nologin 2>/dev/null || echo /usr/sbin/nologin)
 if ! id "$SERVICE_USER" &>/dev/null; then
-    useradd -r -s /sbin/nologin -d "$DATA_DIR" -M "$SERVICE_USER"
+    useradd -r -g "$SERVICE_USER" -s "$NOLOGIN" -d "$DATA_DIR" -M "$SERVICE_USER"
     ok "Created system user '${SERVICE_USER}'"
 else
     info "User '${SERVICE_USER}' already exists, skipping"
