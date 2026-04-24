@@ -56,7 +56,7 @@ trap 'rm -rf "$TMP"' EXIT
 info "Downloading ${URL} ..."
 curl -fsSL "$URL" -o "${TMP}/${ARCHIVE}"
 tar -xzf "${TMP}/${ARCHIVE}" -C "$TMP"
-install -m 0755 "${TMP}/${BINARY}/${BINARY}" "${INSTALL_DIR}/${BINARY}"
+install -m 0755 "${TMP}/${BINARY}" "${INSTALL_DIR}/${BINARY}"
 ok "Binary installed to ${INSTALL_DIR}/${BINARY}"
 
 # ── system user ───────────────────────────────────────────────────────────────
