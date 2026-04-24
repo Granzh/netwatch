@@ -1,12 +1,10 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-SCRIPT_BINARY="/usr/local/bin/netwatch"
-DEB_BINARY="/usr/bin/netwatch"
+BINARY="/usr/local/bin/netwatch"
 CONFIG_DIR="/etc/netwatch"
 DATA_DIR="/var/lib/netwatch"
 SERVICE_FILE="/etc/systemd/system/netwatch.service"
-DEB_SERVICE_FILE="/lib/systemd/system/netwatch.service"
 SERVICE_USER="netwatch"
 
 BOLD="\033[1m"
@@ -38,15 +36,9 @@ else
 fi
 
 # ── remove unit file ──────────────────────────────────────────────────────────
-UNIT_REMOVED=0
-for unit in "$SERVICE_FILE" "$DEB_SERVICE_FILE"; do
-    if [ -f "$unit" ]; then
-        rm -f "$unit"
-        ok "Systemd unit removed: ${unit}"
-        UNIT_REMOVED=1
-    fi
-done
-if [ "$UNIT_REMOVED" -eq 1 ]; then
+if [ -f "$SERVICE_FILE" ]; then
+    rm -f "$SERVICE_FILE"
+    ok "Systemd unit removed: ${SERVICE_FILE}"
     if command -v systemctl >/dev/null 2>&1 && [ -d /run/systemd/system ]; then
         systemctl daemon-reload
     else
@@ -55,12 +47,10 @@ if [ "$UNIT_REMOVED" -eq 1 ]; then
 fi
 
 # ── remove binary ─────────────────────────────────────────────────────────────
-for bin in "$SCRIPT_BINARY" "$DEB_BINARY"; do
-    if [ -f "$bin" ]; then
-        rm -f "$bin"
-        ok "Binary removed: ${bin}"
-    fi
-done
+if [ -f "$BINARY" ]; then
+    rm -f "$BINARY"
+    ok "Binary removed: ${BINARY}"
+fi
 
 # ── remove config (ask first) ─────────────────────────────────────────────────
 if [ -d "$CONFIG_DIR" ]; then

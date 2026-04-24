@@ -15,9 +15,6 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Musl-tools install
-        uses: apt-get isntall -y musl-tools
-
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
 
@@ -43,7 +40,7 @@ jobs:
           mkdir -p dist/netwatch
           cp target/x86_64-unknown-linux-musl/release/netwatch dist/netwatch/
           cp deploy/install.sh deploy/uninstall.sh deploy/netwatch.service dist/netwatch/
-          tar -czf "${ARCHIVE}" -C dist netwatch
+          tar -czf "${ARCHIVE}" -C dist/netwatch .
           echo "ARCHIVE=${ARCHIVE}" >> "$GITHUB_ENV"
 
       - name: Release

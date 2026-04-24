@@ -56,7 +56,7 @@ trap 'rm -rf "$TMP"' EXIT
 info "Downloading ${URL} ..."
 curl -fsSL "$URL" -o "${TMP}/${ARCHIVE}"
 tar -xzf "${TMP}/${ARCHIVE}" -C "$TMP"
-install -m 0755 "${TMP}/${BINARY}" "${INSTALL_DIR}/${BINARY}"
+install -m 0755 "${TMP}/${BINARY}/${BINARY}" "${INSTALL_DIR}/${BINARY}"
 ok "Binary installed to ${INSTALL_DIR}/${BINARY}"
 
 # ── system user ───────────────────────────────────────────────────────────────
@@ -121,6 +121,8 @@ else
         -o "$SERVICE_FILE"
     chmod 0644 "$SERVICE_FILE"
 fi
+# Rewrite ExecStart to match the script install location (/usr/local/bin vs /usr/bin in .deb)
+sed -i "s|ExecStart=.*netwatch |ExecStart=${INSTALL_DIR}/${BINARY} |" "$SERVICE_FILE"
 ok "Systemd unit installed to ${SERVICE_FILE}"
 
 if command -v systemctl >/dev/null 2>&1 && [ -d /run/systemd/system ]; then
@@ -137,9 +139,5 @@ else
     echo
     echo "  Service unit installed at: ${SERVICE_FILE}"
     echo "  Config               : ${CONFIG_DIR}/config.toml"
-<<<<<<< HEAD
-    echo "  Run manually         : ${INSTALL_DIR}/${BINARY} --config ${CONFIG_DIR}/config.toml --db ${DATA_DIR}/netwatch.db run"
-=======
     echo "  Run manually         : ${INSTALL_DIR}/${BINARY} run --config ${CONFIG_DIR}/config.toml --db ${DATA_DIR}"
->>>>>>> ca8f9af7bd4583b81bf7bdde663a6cc0f7fbb0b1
 fi

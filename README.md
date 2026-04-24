@@ -47,14 +47,18 @@ To pin a specific version:
 sudo VERSION=v0.2.0 bash <(curl -fsSL https://raw.githubusercontent.com/Granzh/netwatch/main/deploy/install.sh)
 ```
 
-To uninstall (keeps data and config by default):
+To uninstall (keeps config and data by default):
 
 > **Note:** `uninstall.sh` is only for installs performed via the script above.
+> It removes `/usr/local/bin/netwatch` and the unit file at
+> `/etc/systemd/system/netwatch.service` — the paths created by the script installer.
+> **Do not run it on a `.deb`-based install**; that would delete dpkg-managed files
+> and leave the package database inconsistent.
 > For `.deb` installs use `sudo apt remove netwatch` (or `sudo dpkg -r netwatch`) instead.
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/Granzh/netwatch/main/deploy/uninstall.sh | sudo bash
-# To also delete config and database:
+# To also delete config (/etc/netwatch) and database (/var/lib/netwatch):
 sudo PURGE=1 bash <(curl -fsSL https://raw.githubusercontent.com/Granzh/netwatch/main/deploy/uninstall.sh)
 ```
 
