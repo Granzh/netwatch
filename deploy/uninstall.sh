@@ -23,14 +23,18 @@ die()   { echo -e "${RED}[netwatch] error:${RESET} $*" >&2; exit 1; }
 [ "$(id -u)" -eq 0 ] || die "run as root (sudo $0)"
 
 # ── stop and disable service ──────────────────────────────────────────────────
-if systemctl is-active --quiet netwatch 2>/dev/null; then
-    systemctl stop netwatch
-    ok "Service stopped"
-fi
+if command -v systemctl >/dev/null 2>&1 && [ -d /run/systemd/system ]; then
+    if systemctl is-active --quiet netwatch 2>/dev/null; then
+        systemctl stop netwatch
+        ok "Service stopped"
+    fi
 
-if systemctl is-enabled --quiet netwatch 2>/dev/null; then
-    systemctl disable netwatch
-    ok "Service disabled"
+    if systemctl is-enabled --quiet netwatch 2>/dev/null; then
+        systemctl disable netwatch
+        ok "Service disabled"
+    fi
+else
+    warn "Skipping service management (systemd not available)"
 fi
 
 # ── remove unit file ──────────────────────────────────────────────────────────
@@ -78,10 +82,14 @@ if [ -d "$DATA_DIR" ]; then
     fi
 fi
 
-# ── remove system user ────────────────────────────────────────────────────────
+# ── remove system user (only on purge) ───────────────────────────────────────
 if id "$SERVICE_USER" &>/dev/null; then
-    userdel "$SERVICE_USER"
-    ok "System user '${SERVICE_USER}' removed"
+    if [ "${PURGE:-0}" = "1" ]; then
+        userdel "$SERVICE_USER"
+        ok "System user '${SERVICE_USER}' removed"
+    else
+        warn "System user '${SERVICE_USER}' kept  (re-run with PURGE=1 to delete)"
+    fi
 fi
 
 ok "Uninstall complete"
