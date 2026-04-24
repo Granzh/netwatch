@@ -2,7 +2,8 @@ name: Publish Release
 
 on:
   push:
-    branches: ["fix/fix-build"]
+    tags:
+      - "v*"
 
 permissions:
   contents: write
