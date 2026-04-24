@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-BINARY="/usr/local/bin/netwatch"
+SCRIPT_BINARY="/usr/local/bin/netwatch"
+DEB_BINARY="/usr/bin/netwatch"
 CONFIG_DIR="/etc/netwatch"
 DATA_DIR="/var/lib/netwatch"
 SERVICE_FILE="/etc/systemd/system/netwatch.service"
@@ -50,10 +51,12 @@ if [ "$UNIT_REMOVED" -eq 1 ]; then
 fi
 
 # ── remove binary ─────────────────────────────────────────────────────────────
-if [ -f "$BINARY" ]; then
-    rm -f "$BINARY"
-    ok "Binary removed: ${BINARY}"
-fi
+for bin in "$SCRIPT_BINARY" "$DEB_BINARY"; do
+    if [ -f "$bin" ]; then
+        rm -f "$bin"
+        ok "Binary removed: ${bin}"
+    fi
+done
 
 # ── remove config (ask first) ─────────────────────────────────────────────────
 if [ -d "$CONFIG_DIR" ]; then
