@@ -39,7 +39,7 @@ depends = "$auto"
 section = "net"
 priority = "optional"
 assets = [
-    ["target/x86_64-unknown-linux-musl/release/netwatch", "usr/bin/netwatch", "755"],
+    ["target/release/netwatch", "usr/bin/netwatch", "755"],
     ["deploy/netwatch.service", "lib/systemd/system/netwatch.service", "644"],
 ]
 maintainer-scripts = "deploy/maintainer-scripts"
