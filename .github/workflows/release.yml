@@ -15,6 +15,9 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
+      - name: Musl-tools install
+        uses: apt-get isntall -y musl-tools
+
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
 
