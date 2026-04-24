@@ -22,14 +22,18 @@ die()   { echo -e "${RED}[netwatch] error:${RESET} $*" >&2; exit 1; }
 [ "$(id -u)" -eq 0 ] || die "run as root (sudo $0)"
 
 # ── stop and disable service ──────────────────────────────────────────────────
-if systemctl is-active --quiet netwatch 2>/dev/null; then
-    systemctl stop netwatch
-    ok "Service stopped"
-fi
+if command -v systemctl >/dev/null 2>&1 && [ -d /run/systemd/system ]; then
+    if systemctl is-active --quiet netwatch 2>/dev/null; then
+        systemctl stop netwatch
+        ok "Service stopped"
+    fi
 
-if systemctl is-enabled --quiet netwatch 2>/dev/null; then
-    systemctl disable netwatch
-    ok "Service disabled"
+    if systemctl is-enabled --quiet netwatch 2>/dev/null; then
+        systemctl disable netwatch
+        ok "Service disabled"
+    fi
+else
+    warn "Skipping service management (systemd not available)"
 fi
 
 # ── remove unit file ──────────────────────────────────────────────────────────
