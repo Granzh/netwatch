@@ -79,10 +79,14 @@ if [ -d "$DATA_DIR" ]; then
     fi
 fi
 
-# ── remove system user ────────────────────────────────────────────────────────
+# ── remove system user (only on purge) ───────────────────────────────────────
 if id "$SERVICE_USER" &>/dev/null; then
-    userdel "$SERVICE_USER"
-    ok "System user '${SERVICE_USER}' removed"
+    if [ "${PURGE:-0}" = "1" ]; then
+        userdel "$SERVICE_USER"
+        ok "System user '${SERVICE_USER}' removed"
+    else
+        warn "System user '${SERVICE_USER}' kept  (re-run with PURGE=1 to delete)"
+    fi
 fi
 
 ok "Uninstall complete"
