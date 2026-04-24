@@ -30,7 +30,7 @@ wiremock = "0.6"
 [package.metadata.deb]
 maintainer = "Granzh <kbolokhov@gmail.com>"
 copyright = "2026, Granzh"
-license-file = ["LICENSE", "0"]
+license-file = ["LICENSE"]
 extended-description = """\
 Netwatch is a lightweight, distributed network availability monitor.
 Each node probes configured HTTP endpoints and synchronises results

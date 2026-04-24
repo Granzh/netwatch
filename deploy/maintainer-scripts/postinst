@@ -5,10 +5,14 @@ SERVICE_USER="netwatch"
 DATA_DIR="/var/lib/netwatch"
 CONFIG_DIR="/etc/netwatch"
 
-# Create system user and matching group if they don't exist
+# Create system group and user if they don't exist
+if ! getent group "$SERVICE_USER" > /dev/null 2>&1; then
+    groupadd -r "$SERVICE_USER"
+fi
+
 if ! id "$SERVICE_USER" > /dev/null 2>&1; then
     NOLOGIN=$(command -v nologin 2>/dev/null || echo /usr/sbin/nologin)
-    useradd -r -U -s "$NOLOGIN" -d "$DATA_DIR" -M "$SERVICE_USER"
+    useradd -r -g "$SERVICE_USER" -s "$NOLOGIN" -d "$DATA_DIR" -M "$SERVICE_USER"
 fi
 
 # Ensure directories exist with correct ownership

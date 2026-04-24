@@ -44,15 +44,18 @@ curl -fsSL https://raw.githubusercontent.com/Granzh/netwatch/main/deploy/install
 To pin a specific version:
 
 ```bash
-sudo VERSION=v0.2.0 bash <(curl -fsSL .../install.sh)
+sudo VERSION=v0.2.0 bash <(curl -fsSL https://raw.githubusercontent.com/Granzh/netwatch/main/deploy/install.sh)
 ```
 
 To uninstall (keeps data and config by default):
 
+> **Note:** `uninstall.sh` is only for installs performed via the script above.
+> For `.deb` installs use `sudo apt remove netwatch` (or `sudo dpkg -r netwatch`) instead.
+
 ```bash
 curl -fsSL https://raw.githubusercontent.com/Granzh/netwatch/main/deploy/uninstall.sh | sudo bash
 # To also delete config and database:
-sudo PURGE=1 bash <(curl -fsSL .../uninstall.sh)
+sudo PURGE=1 bash <(curl -fsSL https://raw.githubusercontent.com/Granzh/netwatch/main/deploy/uninstall.sh)
 ```
 
 ### Debian / Ubuntu package

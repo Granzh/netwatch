@@ -114,12 +114,19 @@ else
 fi
 ok "Systemd unit installed to ${SERVICE_FILE}"
 
-systemctl daemon-reload
-systemctl enable netwatch
-systemctl restart netwatch
-
-ok "netwatch ${VERSION} is running"
-echo
-echo "  Status : systemctl status netwatch"
-echo "  Logs   : journalctl -u netwatch -f"
-echo "  Config : ${CONFIG_DIR}/config.toml"
+if command -v systemctl >/dev/null 2>&1 && [ -d /run/systemd/system ]; then
+    systemctl daemon-reload
+    systemctl enable netwatch
+    systemctl restart netwatch
+    ok "netwatch ${VERSION} is running"
+    echo
+    echo "  Status : systemctl status netwatch"
+    echo "  Logs   : journalctl -u netwatch -f"
+    echo "  Config : ${CONFIG_DIR}/config.toml"
+else
+    info "systemd is not available in this environment; skipping service enable/start"
+    echo
+    echo "  Service unit installed at: ${SERVICE_FILE}"
+    echo "  Config               : ${CONFIG_DIR}/config.toml"
+    echo "  Run manually         : ${INSTALL_DIR}/${BINARY} --config ${CONFIG_DIR}/config.toml"
+fi

@@ -41,7 +41,13 @@ for unit in "$SERVICE_FILE" "$DEB_SERVICE_FILE"; do
         UNIT_REMOVED=1
     fi
 done
-[ "$UNIT_REMOVED" -eq 1 ] && systemctl daemon-reload
+if [ "$UNIT_REMOVED" -eq 1 ]; then
+    if command -v systemctl >/dev/null 2>&1 && [ -d /run/systemd/system ]; then
+        systemctl daemon-reload
+    else
+        warn "Skipping systemctl daemon-reload (systemd not available)"
+    fi
+fi
 
 # ── remove binary ─────────────────────────────────────────────────────────────
 if [ -f "$BINARY" ]; then
