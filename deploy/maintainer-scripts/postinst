@@ -49,8 +49,6 @@ EOF
     chmod 0640 "${CONFIG_DIR}/config.toml"
 fi
 
-if command -v systemctl > /dev/null 2>&1 && [ -d /run/systemd/system ]; then
-    systemctl daemon-reload
-    systemctl enable netwatch
-    systemctl start netwatch || true
-fi
+#DEBHELPER#
+
+exit 0
