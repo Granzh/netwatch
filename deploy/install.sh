@@ -32,10 +32,19 @@ info "Installing netwatch ${VERSION}"
 # ── detect architecture ───────────────────────────────────────────────────────
 ARCH=$(uname -m)
 case "$ARCH" in
-    x86_64)  RUST_TARGET="x86_64-unknown-linux-musl" ;;
-    aarch64) RUST_TARGET="aarch64-unknown-linux-musl" ;;
-    armv7l)  RUST_TARGET="armv7-unknown-linux-musleabihf" ;;
-    *) die "Unsupported architecture: ${ARCH}" ;;
+    x86_64)
+        RUST_TARGET="x86_64-unknown-linux-musl"
+        ;;
+    aarch64)
+        die "Unsupported architecture: ${ARCH}. Prebuilt release artifacts are currently only published for x86_64."
+        ;;
+    armv7l)
+        die "Unsupported architecture: ${ARCH}. Prebuilt release artifacts are currently only published for x86_64."
+        ;;
+    *)
+        die "Unsupported architecture: ${ARCH}"
+        ;;
+
 esac
 
 # ── download binary ────────────────────────────────────────────────────────────
