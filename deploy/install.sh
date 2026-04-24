@@ -128,5 +128,5 @@ else
     echo
     echo "  Service unit installed at: ${SERVICE_FILE}"
     echo "  Config               : ${CONFIG_DIR}/config.toml"
-    echo "  Run manually         : ${INSTALL_DIR}/${BINARY} --config ${CONFIG_DIR}/config.toml"
+    echo "  Run manually         : ${INSTALL_DIR}/${BINARY} run --config ${CONFIG_DIR}/config.toml --db ${DATA_DIR}"
 fi
