@@ -30,10 +30,21 @@ jobs:
       - name: Create DEB
         run: cargo deb --no-build --target x86_64-unknown-linux-musl
 
+      - name: Create tar.gz
+        run: |
+          TAG=${GITHUB_REF_NAME}
+          ARCHIVE="netwatch-${TAG}-x86_64-unknown-linux-musl.tar.gz"
+          mkdir -p dist/netwatch
+          cp target/x86_64-unknown-linux-musl/release/netwatch dist/netwatch/
+          cp deploy/install.sh deploy/uninstall.sh deploy/netwatch.service dist/netwatch/
+          tar -czf "${ARCHIVE}" -C dist netwatch
+          echo "ARCHIVE=${ARCHIVE}" >> "$GITHUB_ENV"
+
       - name: Release
         uses: softprops/action-gh-release@v2
         with:
           files: |
             target/debian/*.deb
+            ${{ env.ARCHIVE }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
