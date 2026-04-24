@@ -35,12 +35,15 @@ jobs:
 
       - name: Create tar.gz
         run: |
-          TAG=${GITHUB_REF_NAME}
-          ARCHIVE="netwatch-${TAG}-x86_64-unknown-linux-musl.tar.gz"
+          SAFE_TAG=$(echo "${GITHUB_REF_NAME}" | sed 's/\//-/g')
+          ARCHIVE="netwatch-${SAFE_TAG}-x86_64-unknown-linux-musl.tar.gz"
+
           mkdir -p dist/netwatch
           cp target/x86_64-unknown-linux-musl/release/netwatch dist/netwatch/
-          cp deploy/install.sh deploy/uninstall.sh deploy/netwatch.service dist/netwatch/
+          cp deploy/install.sh deploy/uninstall.sh deploy/netwatch.service dist/netwatch/ || true
+
           tar -czf "${ARCHIVE}" -C dist/netwatch .
+
           echo "ARCHIVE=${ARCHIVE}" >> "$GITHUB_ENV"
 
       - name: Release

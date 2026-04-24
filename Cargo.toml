@@ -2,6 +2,7 @@
 name = "netwatch"
 version = "0.1.0"
 edition = "2024"
+description = "A network monitoring tool written in Rust"
 
 [dependencies]
 serde = { version = "1", features = ["derive"] }
@@ -35,15 +36,15 @@ extended-description = """\
 Netwatch is a lightweight, distributed network availability monitor.
 Each node probes configured HTTP endpoints and synchronises results
 with configured peer nodes via periodic HTTP POST-based sync."""
-depends = "$auto"
+depends = ""
 section = "net"
 priority = "optional"
 assets = [
-    ["target/x86_64-unknown-linux-musl/release/netwatch", "usr/bin/netwatch", "755"],
+    ["target/release/netwatch", "usr/bin/netwatch", "755"],
     ["deploy/netwatch.service", "lib/systemd/system/netwatch.service", "644"],
 ]
 maintainer-scripts = "deploy/maintainer-scripts"
-systemd-units = { enable = false }
+systemd-units = { unit-name = "netwatch", unit-scripts = "deploy" }
 
 [profile.release]
 strip = true

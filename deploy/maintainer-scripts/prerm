@@ -13,3 +13,7 @@ case "$1" in
         fi
         ;;
 esac
+
+#DEBHELPER#
+
+exit 0
