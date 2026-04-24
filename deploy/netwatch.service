@@ -1,0 +1,31 @@
+[Unit]
+Description=Netwatch network availability monitor
+Documentation=https://github.com/Granzh/netwatch
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=netwatch
+Group=netwatch
+WorkingDirectory=/var/lib/netwatch
+ExecStart=/usr/bin/netwatch run \
+    --config /etc/netwatch/config.toml \
+    --db /var/lib/netwatch/netwatch.db
+
+Restart=on-failure
+RestartSec=10
+
+Nice=10
+IOSchedulingClass=idle
+
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+PrivateDevices=true
+ReadWritePaths=/var/lib/netwatch
+ReadOnlyPaths=/etc/netwatch
+
+[Install]
+WantedBy=multi-user.target

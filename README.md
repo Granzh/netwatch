@@ -30,21 +30,111 @@ using a compact database with automatic log rotation to prevent storage bloat.
 
 - CI/CD: GitHub Actions for automated x86_64-unknown-linux-musl static builds.
 
-## Building from Source
+## Installation
 
-To generate a fully optimized, "stripped" binary for Linux:
+### Install script (recommended)
 
-```Bash
-cargo build --release --target x86_64-unknown-linux-musl
+Downloads the latest release binary, creates a `netwatch` system user, writes a
+default config to `/etc/netwatch/config.toml`, and registers a systemd service:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/Granzh/netwatch/main/deploy/install.sh | sudo bash
 ```
 
-The resulting binary is self-contained and ready for deployment
-on any Linux distribution without additional shared libraries.
+To pin a specific version:
+
+```bash
+sudo VERSION=v0.2.0 bash <(curl -fsSL https://raw.githubusercontent.com/Granzh/netwatch/main/deploy/install.sh)
+```
+
+To uninstall (keeps config and data by default):
+
+> **Note:** `uninstall.sh` is only for installs performed via the script above.
+> It removes `/usr/local/bin/netwatch` and the unit file at
+> `/etc/systemd/system/netwatch.service` — the paths created by the script installer.
+> **Do not run it on a `.deb`-based install**; that would delete dpkg-managed files
+> and leave the package database inconsistent.
+> For `.deb` installs use `sudo apt remove netwatch` (or `sudo dpkg -r netwatch`) instead.
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/Granzh/netwatch/main/deploy/uninstall.sh | sudo bash
+# To also delete config (/etc/netwatch) and database (/var/lib/netwatch):
+sudo PURGE=1 bash <(curl -fsSL https://raw.githubusercontent.com/Granzh/netwatch/main/deploy/uninstall.sh)
+```
+
+### Debian / Ubuntu package
+
+Download the `.deb`
+from the [Releases](https://github.com/Granzh/netwatch/releases) page and install:
+
+```bash
+sudo dpkg -i netwatch_<version>_amd64.deb
+```
+
+The package automatically creates the `netwatch` user, writes a default config,
+and enables the systemd service via `postinst`.
+
+### Building from source
+
+Requires Rust and the `x86_64-unknown-linux-musl` target:
+
+```bash
+rustup target add x86_64-unknown-linux-musl
+cargo build --release --target x86_64-unknown-linux-musl
+# Binary: target/x86_64-unknown-linux-musl/release/netwatch
+```
 
 ## Configuration
 
+After installation, edit `/etc/netwatch/config.toml` (or any path passed via `--config`):
+
+```toml
+# URLs to probe — netwatch issues HTTP HEAD requests to each
+sources = [
+    "https://www.google.com",
+    "https://www.cloudflare.com",
+    "https://www.github.com",
+]
+
+# Latency above this value (ms) is treated as degraded
+latency_threshold_ms = 500
+
+# Base probe interval in seconds; actual interval = check_interval ± check_jitter
+check_interval_seconds = 60
+check_jitter_seconds = 5
+
+# Maximum concurrent outbound probes
+max_concurrent_checks = 10
+
+# Per-request HTTP timeout (seconds)
+request_timeout_secs = 10
+
+# Follow HTTP redirects
+follow_redirects = true
+
+# Accept self-signed / invalid TLS certificates (use with care)
+danger_accept_invalid_certs = false
+
+# HTTP API — used by peers and the CLI to query status
+http_api = "127.0.0.1"
+listen_port = 8080
+
+# Optional shared secret — set the same value on all peers
+# api_secret = "change-me"
+
+# Unique identifier for this node (defaults to hostname:port)
+# node_id = "dc1-node1"
+
+# Peer nodes — add the base URLs of other netwatch instances
+peers = []
+sync_interval_seconds = 60
+max_concurrent_syncs = 5
+sync_timeout_secs = 30
+```
+
+Netwatch watches the config file for changes and reloads without restart.
+
 The system dynamically manages two types of endpoints:
 
-- Public Targets: External services (e.g., Google, Telegram, Claude) to be monitored.
-
-- Internal Peers: Special addresses of other Netwatch nodes for data exchange.
+- **Public Targets** — external services (e.g., Google, Cloudflare) to be monitored.
+- **Internal Peers** — other Netwatch nodes for mesh data synchronisation.
