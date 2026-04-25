@@ -107,15 +107,28 @@ impl Db {
         Ok(())
     }
 
-    /// Returns the most recent CheckResult per host within the last `since_hours` hours.
+    /// Returns the most recent CheckResult per host and source within the last `since_hours` hours.
     pub fn latest_status(&self, since_hours: u32) -> Result<Vec<CheckResult>, DbError> {
         let cutoff = Utc::now().timestamp_millis() - since_hours as i64 * 3_600_000;
         let mut stmt = self.conn.prepare_cached(
-            "SELECT MAX(id), ts, host, ok, latency_ms, source
-            FROM checks
-            WHERE ts > ?1
-            GROUP BY host, source
-            ORDER BY host",
+            "WITH ranked AS (
+                SELECT
+                    id,
+                    ts,
+                    host,
+                    ok,
+                    latency_ms,
+                    source,
+                    ROW_NUMBER() OVER (
+                        PARTITION BY host, source
+                        ORDER BY ts DESC, id DESC
+                    ) AS rn
+                FROM checks
+                WHERE ts > ?1
+            )
+            SELECT id, ts, host, ok, latency_ms, source
+            FROM ranked
+            WHERE rn = 1",
         )?;
         let rows = stmt.query_map(params![cutoff], row_to_check)?;
         rows.collect::<Result<Vec<_>, _>>().map_err(Into::into)
