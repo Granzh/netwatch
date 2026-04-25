@@ -11,6 +11,16 @@ fn make_result(host: &str, ok: bool, latency_ms: u32) -> CheckResult {
     }
 }
 
+fn make_result_by_other_node(host: &str, ok: bool, latency_ms: u32) -> CheckResult {
+    CheckResult {
+        host: host.to_string(),
+        ok,
+        latency_ms,
+        timestamp: Utc::now(),
+        source: "peer:test".to_string(),
+    }
+}
+
 #[test]
 fn open_in_memory_and_migrate() {
     Db::open_in_memory().expect("should open");
@@ -28,6 +38,23 @@ fn insert_and_history() {
     assert_eq!(hist.len(), 3);
     // newest first
     assert_eq!(hist[0].latency_ms, 30);
+}
+
+#[test]
+fn results_from_same_host_and_different_nodes_not_merged() {
+    let db = Db::open_in_memory().unwrap();
+
+    db.insert(&make_result("host-a", true, 10)).unwrap();
+    db.insert(&make_result_by_other_node("host-a", true, 11))
+        .unwrap();
+
+    let latest_statuses = db.latest_status(1).unwrap();
+    assert_eq!(latest_statuses.len(), 2);
+    assert_eq!(latest_statuses[0].host, "host-a");
+    assert_eq!(latest_statuses[1].host, "host-a");
+    let has_node1 = latest_statuses.iter().any(|r| r.source == "test");
+    let has_node2 = latest_statuses.iter().any(|r| r.source == "peer:test");
+    assert!(has_node1 && has_node2);
 }
 
 #[test]

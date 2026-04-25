@@ -111,16 +111,11 @@ impl Db {
     pub fn latest_status(&self, since_hours: u32) -> Result<Vec<CheckResult>, DbError> {
         let cutoff = Utc::now().timestamp_millis() - since_hours as i64 * 3_600_000;
         let mut stmt = self.conn.prepare_cached(
-            "SELECT id, ts, host, ok, latency_ms, source
-             FROM checks
-             WHERE ts > ?1
-               AND id IN (
-                   SELECT MAX(id) FROM checks c1
-                       WHERE c1.ts > ?1
-                         AND c1.ts = (SELECT MAX(c2.ts) FROM checks c2 WHERE c2.host = c1.host AND c2.ts > ?1)
-                       GROUP BY c1.host
-               )
-             ORDER BY host",
+            "SELECT MAX(id), ts, host, ok, latency_ms, source
+            FROM checks
+            WHERE ts > ?1
+            GROUP BY host, source
+            ORDER BY host",
         )?;
         let rows = stmt.query_map(params![cutoff], row_to_check)?;
         rows.collect::<Result<Vec<_>, _>>().map_err(Into::into)
