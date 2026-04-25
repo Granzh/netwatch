@@ -113,7 +113,7 @@ else
 fi
 
 # ── systemd unit ──────────────────────────────────────────────────────────────
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)"
 if [ -f "${SCRIPT_DIR}/netwatch.service" ]; then
     install -m 0644 "${SCRIPT_DIR}/netwatch.service" "$SERVICE_FILE"
 else
