@@ -14,6 +14,7 @@ use netwatch::api::{AppState, router};
 use netwatch::checker::{Checker, build_client};
 use netwatch::config::AppConfig;
 use netwatch::db::Db;
+use netwatch::update::parse_semver;
 use netwatch::watcher::ConfigStore;
 use netwatch::{peer_sync, scheduler};
 
@@ -76,6 +77,15 @@ enum Command {
         #[arg(long)]
         defaults: bool,
     },
+    /// Update the netwatch binary to the latest (or a specific) release
+    Update {
+        /// Only check if an update is available; don't install (exits 1 if update found)
+        #[arg(long)]
+        check: bool,
+        /// Install a specific release version (e.g. v0.1.5)
+        #[arg(long)]
+        version: Option<String>,
+    },
 }
 
 #[derive(Tabled)]
@@ -106,6 +116,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         Command::RemovePeer { url } => cmd_remove_peer(&cli.config, &url)?,
         Command::List => cmd_list(&cli.config)?,
         Command::Init { defaults } => cmd_init(&cli.config, defaults)?,
+        Command::Update { check, version } => std::process::exit(cmd_update(check, version).await?),
     }
 
     Ok(())
@@ -425,4 +436,181 @@ fn cmd_init(config_path: &Path, defaults: bool) -> Result<(), Box<dyn std::error
     println!("Config written to '{}'.", config_path.display());
     println!("Edit it to customise sources, latency threshold, and other settings.");
     Ok(())
+}
+
+// ── self-update ────────────────────────────────────────────────────────────────
+
+const GITHUB_REPO: &str = "Granzh/netwatch";
+const UPDATE_TARGET: &str = "x86_64-unknown-linux-musl";
+
+async fn fetch_release(
+    client: &reqwest::Client,
+    tag: &str,
+) -> Result<serde_json::Value, Box<dyn std::error::Error>> {
+    let url = if tag == "latest" {
+        format!("https://api.github.com/repos/{GITHUB_REPO}/releases/latest")
+    } else {
+        format!("https://api.github.com/repos/{GITHUB_REPO}/releases/tags/{tag}")
+    };
+    let release = client
+        .get(&url)
+        .header(
+            "User-Agent",
+            format!("netwatch/{}", env!("CARGO_PKG_VERSION")),
+        )
+        .send()
+        .await?
+        .error_for_status()?
+        .json::<serde_json::Value>()
+        .await?;
+    Ok(release)
+}
+
+async fn download_to(
+    client: &reqwest::Client,
+    url: &str,
+    dest: &Path,
+) -> Result<(), Box<dyn std::error::Error>> {
+    use std::io::Write;
+    let mut resp = client
+        .get(url)
+        .header(
+            "User-Agent",
+            format!("netwatch/{}", env!("CARGO_PKG_VERSION")),
+        )
+        .send()
+        .await?
+        .error_for_status()?;
+
+    let dest = dest.to_path_buf();
+    let (tx, rx) = tokio::sync::oneshot::channel::<Result<(), String>>();
+    let mut buf: Vec<u8> = Vec::new();
+    while let Some(chunk) = resp.chunk().await? {
+        buf.extend_from_slice(&chunk);
+    }
+    tokio::task::spawn_blocking(move || {
+        let result = (|| {
+            let mut file = std::fs::File::create(&dest)?;
+            file.write_all(&buf)?;
+            file.flush()?;
+            Ok::<(), std::io::Error>(())
+        })();
+        let _ = tx.send(result.map_err(|e| e.to_string()));
+    });
+    rx.await?.map_err(|e| e.into())
+}
+
+/// Returns exit code: 0 = success / up-to-date, 1 = update available (--check only).
+async fn cmd_update(
+    check_only: bool,
+    pin_version: Option<String>,
+) -> Result<i32, Box<dyn std::error::Error>> {
+    let client = reqwest::Client::builder()
+        .user_agent(format!("netwatch/{}", env!("CARGO_PKG_VERSION")))
+        .build()?;
+
+    let tag = pin_version.as_deref().unwrap_or("latest");
+    print!("Fetching release info for '{tag}'... ");
+    io::stdout().flush()?;
+
+    let release = fetch_release(&client, tag).await?;
+    let remote_tag = release["tag_name"]
+        .as_str()
+        .ok_or("GitHub response missing tag_name")?;
+
+    println!("{remote_tag}");
+
+    let current = env!("CARGO_PKG_VERSION");
+    let current_parsed = parse_semver(current);
+    let remote_parsed = parse_semver(remote_tag);
+
+    let needs_update = match (current_parsed, remote_parsed) {
+        (Some(cur), Some(rem)) => rem > cur,
+        _ => {
+            // Can't compare — treat as needing update when a version is pinned
+            pin_version.is_some()
+        }
+    };
+
+    if !needs_update {
+        println!("Already up to date (v{current}).");
+        return Ok(0);
+    }
+
+    if let Some(url) = release["html_url"].as_str() {
+        println!("Changelog: {url}");
+    }
+
+    if check_only {
+        println!("Update available: v{current} → {remote_tag}");
+        println!("Run `netwatch update` (as root) to install.");
+        return Ok(1);
+    }
+
+    // Find the right asset
+    let assets = release["assets"].as_array().ok_or("no assets in release")?;
+    let asset = assets
+        .iter()
+        .find(|a| {
+            a["name"]
+                .as_str()
+                .map(|n| n.contains(UPDATE_TARGET))
+                .unwrap_or(false)
+        })
+        .ok_or_else(|| format!("no asset found for target '{UPDATE_TARGET}'"))?;
+
+    let asset_url = asset["browser_download_url"]
+        .as_str()
+        .ok_or("asset missing browser_download_url")?;
+    let asset_name = asset["name"].as_str().unwrap_or("netwatch.tar.gz");
+
+    // Download to temp dir
+    let tmp_dir = std::env::temp_dir();
+    let archive_path = tmp_dir.join(asset_name);
+
+    println!("Downloading {asset_name}...");
+    download_to(&client, asset_url, &archive_path).await?;
+
+    // Extract binary from archive
+    let binary_tmp = tmp_dir.join("netwatch.new");
+    let status = std::process::Command::new("tar")
+        .args([
+            "-xzf",
+            archive_path.to_str().unwrap(),
+            "-C",
+            tmp_dir.to_str().unwrap(),
+            "--wildcards",
+            "*/netwatch",
+            "--strip-components=1",
+        ])
+        .status();
+
+    match status {
+        Ok(s) if s.success() => {
+            // tar placed the binary as tmp_dir/netwatch
+            std::fs::rename(tmp_dir.join("netwatch"), &binary_tmp)?;
+        }
+        _ => {
+            // Archive might be a bare binary (future packaging change)
+            std::fs::rename(&archive_path, &binary_tmp)?;
+        }
+    }
+    let _ = std::fs::remove_file(&archive_path);
+
+    // Make executable
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let mut perms = std::fs::metadata(&binary_tmp)?.permissions();
+        perms.set_mode(0o755);
+        std::fs::set_permissions(&binary_tmp, perms)?;
+    }
+
+    // Atomic replace
+    let current_exe = std::env::current_exe()?;
+    std::fs::rename(&binary_tmp, &current_exe)?;
+
+    println!("Updated to {remote_tag} at {}.", current_exe.display());
+    println!("Run: sudo systemctl restart netwatch");
+    Ok(0)
 }
