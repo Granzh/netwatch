@@ -57,7 +57,9 @@ pub async fn run(
             } else if r.latency_ms > cfg.latency_threshold_ms {
                 log::warn!(
                     "{} UP {}ms (above {}ms threshold)",
-                    r.host, r.latency_ms, cfg.latency_threshold_ms
+                    r.host,
+                    r.latency_ms,
+                    cfg.latency_threshold_ms
                 );
             } else {
                 log::info!("{} UP {}ms", r.host, r.latency_ms);
