@@ -16,6 +16,22 @@ fn parse_semver_strips_prerelease() {
 }
 
 #[test]
+fn parse_semver_strips_build_metadata() {
+    assert_eq!(parse_semver("1.2.3+build.5"), Some((1, 2, 3)));
+}
+
+#[test]
+fn parse_semver_trims_whitespace() {
+    assert_eq!(parse_semver("  v1.0.0  "), Some((1, 0, 0)));
+}
+
+#[test]
+fn parse_semver_single_v_prefix_only() {
+    // "vv1.2.3" should NOT parse — only one v is stripped
+    assert_eq!(parse_semver("vv1.2.3"), None);
+}
+
+#[test]
 fn parse_semver_invalid_returns_none() {
     assert_eq!(parse_semver("not-a-version"), None);
     assert_eq!(parse_semver(""), None);

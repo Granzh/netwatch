@@ -471,7 +471,7 @@ async fn download_to(
     url: &str,
     dest: &Path,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    use std::io::Write;
+    use tokio::io::AsyncWriteExt;
     let mut resp = client
         .get(url)
         .header(
@@ -482,22 +482,68 @@ async fn download_to(
         .await?
         .error_for_status()?;
 
-    let dest = dest.to_path_buf();
-    let (tx, rx) = tokio::sync::oneshot::channel::<Result<(), String>>();
-    let mut buf: Vec<u8> = Vec::new();
+    let mut file = tokio::fs::File::create(dest).await?;
     while let Some(chunk) = resp.chunk().await? {
-        buf.extend_from_slice(&chunk);
+        file.write_all(&chunk).await?;
     }
-    tokio::task::spawn_blocking(move || {
-        let result = (|| {
-            let mut file = std::fs::File::create(&dest)?;
-            file.write_all(&buf)?;
-            file.flush()?;
-            Ok::<(), std::io::Error>(())
-        })();
-        let _ = tx.send(result.map_err(|e| e.to_string()));
-    });
-    rx.await?.map_err(|e| e.into())
+    file.flush().await?;
+    Ok(())
+}
+
+fn find_checksum_url(assets: &[serde_json::Value], asset_name: &str) -> Option<String> {
+    let candidates = [format!("{asset_name}.sha256"), "SHA256SUMS".to_string()];
+    for name in &candidates {
+        if let Some(url) = assets
+            .iter()
+            .find(|a| a["name"].as_str() == Some(name.as_str()))
+            .and_then(|a| a["browser_download_url"].as_str())
+        {
+            return Some(url.to_string());
+        }
+    }
+    None
+}
+
+fn verify_checksum(archive: &Path, sums_file: &Path) -> Result<(), Box<dyn std::error::Error>> {
+    let archive_name = archive.file_name().ok_or("archive has no filename")?;
+    let sums = std::fs::read_to_string(sums_file)?;
+
+    let expected = sums
+        .lines()
+        .find(|line| {
+            line.split_whitespace()
+                .nth(1)
+                .map(|n| std::path::Path::new(n).file_name() == Some(archive_name))
+                .unwrap_or(false)
+        })
+        .and_then(|line| line.split_whitespace().next())
+        .ok_or("checksum not found in SHA256SUMS")?
+        .to_string();
+
+    let output = std::process::Command::new("sha256sum")
+        .arg(archive)
+        .output()?;
+
+    if !output.status.success() {
+        return Err(format!(
+            "sha256sum failed: {}",
+            String::from_utf8_lossy(&output.stderr)
+        )
+        .into());
+    }
+
+    let computed = String::from_utf8_lossy(&output.stdout);
+    let computed_hash = computed
+        .split_whitespace()
+        .next()
+        .ok_or("sha256sum produced no output")?;
+
+    if computed_hash != expected {
+        return Err(format!("checksum mismatch: expected {expected}, got {computed_hash}").into());
+    }
+
+    println!("Checksum verified.");
+    Ok(())
 }
 
 /// Returns exit code: 0 = success / up-to-date, 1 = update available (--check only).
@@ -564,51 +610,63 @@ async fn cmd_update(
         .ok_or("asset missing browser_download_url")?;
     let asset_name = asset["name"].as_str().unwrap_or("netwatch.tar.gz");
 
-    // Download to temp dir
+    // Download archive to temp dir
     let tmp_dir = std::env::temp_dir();
     let archive_path = tmp_dir.join(asset_name);
 
     println!("Downloading {asset_name}...");
     download_to(&client, asset_url, &archive_path).await?;
 
-    // Extract binary from archive
-    let binary_tmp = tmp_dir.join("netwatch.new");
-    let status = std::process::Command::new("tar")
-        .args([
-            "-xzf",
-            archive_path.to_str().unwrap(),
-            "-C",
-            tmp_dir.to_str().unwrap(),
-            "--wildcards",
-            "*/netwatch",
-            "--strip-components=1",
-        ])
-        .status();
+    // Verify checksum if a SHA256SUMS asset is present
+    if let Some(checksum_url) = find_checksum_url(assets, asset_name) {
+        let sums_path = tmp_dir.join("SHA256SUMS");
+        download_to(&client, &checksum_url, &sums_path).await?;
+        verify_checksum(&archive_path, &sums_path)?;
+        let _ = std::fs::remove_file(&sums_path);
+    }
 
-    match status {
-        Ok(s) if s.success() => {
-            // tar placed the binary as tmp_dir/netwatch
-            std::fs::rename(tmp_dir.join("netwatch"), &binary_tmp)?;
-        }
-        _ => {
-            // Archive might be a bare binary (future packaging change)
-            std::fs::rename(&archive_path, &binary_tmp)?;
-        }
+    // Extract binary into tmp_dir using OsStr paths (no .to_str().unwrap())
+    let extracted = tmp_dir.join("netwatch.extracted");
+    let tar_ok = std::process::Command::new("tar")
+        .arg("-xzf")
+        .arg(&archive_path)
+        .arg("-C")
+        .arg(&tmp_dir)
+        .arg("--wildcards")
+        .arg("*/netwatch")
+        .arg("--strip-components=1")
+        .status()
+        .map(|s| s.success())
+        .unwrap_or(false);
+
+    if tar_ok {
+        std::fs::rename(tmp_dir.join("netwatch"), &extracted)?;
+    } else {
+        // Archive may be a bare binary
+        std::fs::rename(&archive_path, &extracted)?;
     }
     let _ = std::fs::remove_file(&archive_path);
 
-    // Make executable
+    // Stage next to current_exe (same filesystem) so rename is atomic
+    let current_exe = std::env::current_exe()?;
+    let install_dir = current_exe
+        .parent()
+        .ok_or("cannot determine install directory")?;
+    let staging = install_dir.join(".netwatch.new");
+
+    // Copy cross-filesystem, then rename within the same directory
+    std::fs::copy(&extracted, &staging)?;
+    let _ = std::fs::remove_file(&extracted);
+
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
-        let mut perms = std::fs::metadata(&binary_tmp)?.permissions();
+        let mut perms = std::fs::metadata(&staging)?.permissions();
         perms.set_mode(0o755);
-        std::fs::set_permissions(&binary_tmp, perms)?;
+        std::fs::set_permissions(&staging, perms)?;
     }
 
-    // Atomic replace
-    let current_exe = std::env::current_exe()?;
-    std::fs::rename(&binary_tmp, &current_exe)?;
+    std::fs::rename(&staging, &current_exe)?;
 
     println!("Updated to {remote_tag} at {}.", current_exe.display());
     println!("Run: sudo systemctl restart netwatch");
