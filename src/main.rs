@@ -397,11 +397,12 @@ fn cmd_init(config_path: &Path, defaults: bool) -> Result<(), Box<dyn std::error
         println!();
     }
 
-    if let Some(parent) = config_path.parent() {
-        if !parent.as_os_str().is_empty() {
-            std::fs::create_dir_all(parent)?;
-        }
+    if let Some(parent) = config_path.parent()
+        && !parent.as_os_str().is_empty()
+    {
+        std::fs::create_dir_all(parent)?;
     }
+
     config.save(config_path)?;
     println!("Config written to '{}'.", config_path.display());
     println!("Edit it to customise sources, latency threshold, and other settings.");
