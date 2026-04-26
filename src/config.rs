@@ -79,7 +79,7 @@ fn local_hostname() -> String {
         .unwrap_or_else(|| "unknown".to_string())
 }
 
-fn node_id_for_port(port: u16) -> String {
+pub(crate) fn node_id_for_port(port: u16) -> String {
     format!("{}:{port}", local_hostname())
 }
 
@@ -155,15 +155,24 @@ impl AppConfig {
 
     pub fn load_or_default(path: impl AsRef<Path>) -> Self {
         let path_ref = path.as_ref();
-
-        Self::load(path_ref).unwrap_or_else(|_| {
-            let config = Self::default();
-            if let Ok(toml_str) = toml::to_string_pretty(&config) {
-                let _ = fs::write(path_ref, toml_str);
+        match Self::load(path_ref) {
+            Ok(config) => config,
+            Err(ConfigError::Io(ref e)) if e.kind() == std::io::ErrorKind::NotFound => {
+                Self::default()
             }
+            Err(e) => {
+                log::warn!(
+                    "[config] failed to load '{}': {e} — using defaults",
+                    path_ref.display()
+                );
+                Self::default()
+            }
+        }
+    }
 
-            config
-        })
+    pub fn set_port(&mut self, port: u16) {
+        self.listen_port = port;
+        self.node_id = node_id_for_port(port);
     }
 
     pub fn save(&self, path: impl AsRef<Path>) -> Result<(), ConfigError> {

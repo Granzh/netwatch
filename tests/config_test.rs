@@ -33,7 +33,7 @@ fn load_save_load_roundtrip() {
 }
 
 #[test]
-fn load_or_default_creates_file() {
+fn load_or_default_returns_default_when_file_missing() {
     let dir = tempdir().unwrap();
     let path = dir.path().join("config.toml");
 
@@ -41,11 +41,8 @@ fn load_or_default_creates_file() {
 
     let config = AppConfig::load_or_default(&path);
 
-    assert!(path.exists(), "config.toml should be created on first run");
     assert_eq!(config, AppConfig::default());
-
-    let reloaded = AppConfig::load(&path).unwrap();
-    assert_eq!(config, reloaded);
+    assert!(!path.exists(), "load_or_default must not create files — use `netwatch init` for that");
 }
 
 #[test]
@@ -126,4 +123,104 @@ fn load_returns_error_on_invalid_toml() {
         AppConfig::load(&path).unwrap_err(),
         netwatch::config::ConfigError::Parse(_)
     ));
+}
+
+#[test]
+fn load_peers_from_raw_toml() {
+    let dir = tempdir().unwrap();
+    let path = dir.path().join("config.toml");
+
+    std::fs::write(
+        &path,
+        r#"sources = ["https://example.com"]
+latency_threshold_ms = 100
+check_interval_seconds = 60
+peers = ["http://peer1:8080", "http://peer2:9090"]
+"#,
+    )
+    .unwrap();
+
+    let config = AppConfig::load(&path).unwrap();
+
+    assert_eq!(
+        config.peers,
+        vec![
+            "http://peer1:8080".to_string(),
+            "http://peer2:9090".to_string(),
+        ]
+    );
+}
+
+#[test]
+fn load_or_default_preserves_peers_on_valid_config() {
+    let dir = tempdir().unwrap();
+    let path = dir.path().join("config.toml");
+
+    let mut config = AppConfig::default();
+    config.peers.push("http://10.0.0.2:8080".to_string());
+    config.save(&path).unwrap();
+
+    // Simulates what `netwatch run` does via ConfigStore
+    let loaded = AppConfig::load_or_default(&path);
+
+    assert_eq!(
+        loaded.peers,
+        vec!["http://10.0.0.2:8080".to_string()],
+        "load_or_default must not discard peers from a valid config"
+    );
+}
+
+#[test]
+fn load_or_default_returns_default_on_parse_error_without_touching_file() {
+    let dir = tempdir().unwrap();
+    let path = dir.path().join("config.toml");
+
+    let original = "this = [invalid toml {{ }}";
+    std::fs::write(&path, original).unwrap();
+
+    let config = AppConfig::load_or_default(&path);
+
+    assert_eq!(config, AppConfig::default(), "should fall back to defaults on parse error");
+    assert_eq!(
+        std::fs::read_to_string(&path).unwrap(),
+        original,
+        "file must not be touched on parse error"
+    );
+}
+
+#[test]
+fn set_port_updates_node_id() {
+    let mut config = AppConfig::default();
+    config.set_port(9090);
+    assert_eq!(config.listen_port, 9090);
+    assert!(
+        config.node_id.ends_with(":9090"),
+        "node_id should reflect the new port, got: {}",
+        config.node_id
+    );
+}
+
+#[test]
+fn peers_survive_add_save_load_cycle() {
+    // Mirrors the `netwatch init` → `netwatch add-peer` → `netwatch list` flow.
+    let dir = tempdir().unwrap();
+    let path = dir.path().join("netwatch.toml");
+
+    // netwatch init --defaults writes the file (no peers)
+    let config = AppConfig::default();
+    assert!(config.peers.is_empty());
+    config.save(&path).unwrap();
+
+    // netwatch add-peer: load, push, save
+    let mut config = AppConfig::load(&path).unwrap();
+    config.peers.push("http://10.0.0.3:8080".to_string());
+    config.save(&path).unwrap();
+
+    // netwatch list: load and verify peer is present
+    let config_on_list = AppConfig::load(&path).unwrap();
+    assert_eq!(
+        config_on_list.peers,
+        vec!["http://10.0.0.3:8080".to_string()],
+        "peers added via add-peer must appear in netwatch list"
+    );
 }

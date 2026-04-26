@@ -1,6 +1,7 @@
 use netwatch::config::{ConfigError, parse_listen_addr};
+use std::io::{self, Write};
 use std::net::SocketAddr;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -16,23 +17,12 @@ use netwatch::db::Db;
 use netwatch::watcher::ConfigStore;
 use netwatch::{peer_sync, scheduler};
 
+const CONFIG_PATH: &str = "/etc/netwatch/config.toml";
+const DB_PATH: &str = "/var/lib/netwatch/netwatch.db";
+
 #[derive(Parser)]
 #[command(name = "netwatch", about = "Network availability monitor", version)]
 struct Cli {
-    #[arg(
-        long,
-        default_value = "netwatch.toml",
-        global = true,
-        help = "Config file path"
-    )]
-    config: PathBuf,
-    #[arg(
-        long,
-        default_value = "netwatch.db",
-        global = true,
-        help = "Database file path"
-    )]
-    db: PathBuf,
     #[command(subcommand)]
     command: Command,
 }
@@ -76,6 +66,12 @@ enum Command {
     },
     /// Show the current configuration
     List,
+    /// Create a default config file, prompting for key settings
+    Init {
+        /// Write defaults without any prompts
+        #[arg(long)]
+        defaults: bool,
+    },
 }
 
 #[derive(Tabled)]
@@ -95,16 +91,19 @@ struct StatusRow {
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let cli = Cli::parse();
+    let config_path = Path::new(CONFIG_PATH);
+    let db_path = Path::new(DB_PATH);
 
     match cli.command {
-        Command::Run => cmd_run(&cli.config, &cli.db).await?,
-        Command::Status => cmd_status(&cli.db)?,
-        Command::History { host, limit } => cmd_history(&cli.db, &host, limit)?,
-        Command::Add { url } => cmd_add(&cli.config, &url)?,
-        Command::Remove { url } => cmd_remove(&cli.config, &url)?,
-        Command::AddPeer { url } => cmd_add_peer(&cli.config, &url)?,
-        Command::RemovePeer { url } => cmd_remove_peer(&cli.config, &url)?,
-        Command::List => cmd_list(&cli.config)?,
+        Command::Run => cmd_run(config_path, db_path).await?,
+        Command::Status => cmd_status(db_path)?,
+        Command::History { host, limit } => cmd_history(db_path, &host, limit)?,
+        Command::Add { url } => cmd_add(config_path, &url)?,
+        Command::Remove { url } => cmd_remove(config_path, &url)?,
+        Command::AddPeer { url } => cmd_add_peer(config_path, &url)?,
+        Command::RemovePeer { url } => cmd_remove_peer(config_path, &url)?,
+        Command::List => cmd_list(config_path)?,
+        Command::Init { defaults } => cmd_init(config_path, defaults)?,
     }
 
     Ok(())
@@ -300,7 +299,17 @@ fn cmd_remove_peer(config_path: &Path, url: &str) -> Result<(), Box<dyn std::err
 }
 
 fn cmd_list(config_path: &Path) -> Result<(), Box<dyn std::error::Error>> {
-    let config = load_config_or_default(config_path)?;
+    let config = match AppConfig::load(config_path) {
+        Ok(c) => c,
+        Err(ConfigError::Io(e)) if e.kind() == std::io::ErrorKind::NotFound => {
+            println!(
+                "(config file '{}' not found — showing defaults; use --config or run `netwatch run` first)",
+                config_path.display()
+            );
+            AppConfig::default()
+        }
+        Err(e) => return Err(e.into()),
+    };
     let addr = SocketAddr::from((parse_listen_addr(&config.http_api)?, config.listen_port));
 
     println!("Node ID:           {}", config.node_id);
@@ -331,5 +340,64 @@ fn cmd_list(config_path: &Path) -> Result<(), Box<dyn std::error::Error>> {
         }
     }
 
+    Ok(())
+}
+
+fn prompt(label: &str, default: &str) -> io::Result<String> {
+    if default.is_empty() {
+        print!("{label}: ");
+    } else {
+        print!("{label} [{}]: ", default);
+    }
+    io::stdout().flush()?;
+    let mut input = String::new();
+    io::stdin().read_line(&mut input)?;
+    let trimmed = input.trim().to_string();
+    if trimmed.is_empty() {
+        Ok(default.to_string())
+    } else {
+        Ok(trimmed)
+    }
+}
+
+fn cmd_init(config_path: &Path, defaults: bool) -> Result<(), Box<dyn std::error::Error>> {
+    if config_path.exists() {
+        println!("Config already exists at '{}', skipping.", config_path.display());
+        return Ok(());
+    }
+
+    let mut config = AppConfig::default();
+
+    if !defaults {
+        println!("Initialising netwatch. Press Enter to accept each default.");
+        println!();
+
+        let port_str = prompt("Listen port", &config.listen_port.to_string())?;
+        if let Ok(p) = port_str.parse::<u16>() {
+            config.set_port(p);
+        }
+
+        let bind = prompt("HTTP API bind address", &config.http_api)?;
+        config.http_api = bind;
+
+        let peers_str = prompt("Peer node URLs (space or comma separated, or Enter for none)", "")?;
+        config.peers = peers_str
+            .split([',', ' '])
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .map(str::to_string)
+            .collect();
+
+        println!();
+    }
+
+    if let Some(parent) = config_path.parent() {
+        if !parent.as_os_str().is_empty() {
+            std::fs::create_dir_all(parent)?;
+        }
+    }
+    config.save(config_path)?;
+    println!("Config written to '{}'.", config_path.display());
+    println!("Edit it to customise sources, latency threshold, and other settings.");
     Ok(())
 }
