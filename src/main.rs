@@ -1,7 +1,7 @@
 use netwatch::config::{ConfigError, parse_listen_addr};
 use std::io::{self, Write};
 use std::net::SocketAddr;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -23,6 +23,10 @@ const DB_PATH: &str = "/var/lib/netwatch/netwatch.db";
 #[derive(Parser)]
 #[command(name = "netwatch", about = "Network availability monitor", version)]
 struct Cli {
+    #[arg(long, default_value = CONFIG_PATH, global = true, help = "Config file path")]
+    config: PathBuf,
+    #[arg(long, default_value = DB_PATH, global = true, help = "Database file path")]
+    db: PathBuf,
     #[command(subcommand)]
     command: Command,
 }
@@ -91,19 +95,17 @@ struct StatusRow {
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let cli = Cli::parse();
-    let config_path = Path::new(CONFIG_PATH);
-    let db_path = Path::new(DB_PATH);
 
     match cli.command {
-        Command::Run => cmd_run(config_path, db_path).await?,
-        Command::Status => cmd_status(db_path)?,
-        Command::History { host, limit } => cmd_history(db_path, &host, limit)?,
-        Command::Add { url } => cmd_add(config_path, &url)?,
-        Command::Remove { url } => cmd_remove(config_path, &url)?,
-        Command::AddPeer { url } => cmd_add_peer(config_path, &url)?,
-        Command::RemovePeer { url } => cmd_remove_peer(config_path, &url)?,
-        Command::List => cmd_list(config_path)?,
-        Command::Init { defaults } => cmd_init(config_path, defaults)?,
+        Command::Run => cmd_run(&cli.config, &cli.db).await?,
+        Command::Status => cmd_status(&cli.db)?,
+        Command::History { host, limit } => cmd_history(&cli.db, &host, limit)?,
+        Command::Add { url } => cmd_add(&cli.config, &url)?,
+        Command::Remove { url } => cmd_remove(&cli.config, &url)?,
+        Command::AddPeer { url } => cmd_add_peer(&cli.config, &url)?,
+        Command::RemovePeer { url } => cmd_remove_peer(&cli.config, &url)?,
+        Command::List => cmd_list(&cli.config)?,
+        Command::Init { defaults } => cmd_init(&cli.config, defaults)?,
     }
 
     Ok(())
