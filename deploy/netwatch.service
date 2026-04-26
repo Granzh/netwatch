@@ -9,9 +9,7 @@ Type=simple
 User=netwatch
 Group=netwatch
 WorkingDirectory=/var/lib/netwatch
-ExecStart=/usr/bin/netwatch run \
-    --config /etc/netwatch/config.toml \
-    --db /var/lib/netwatch/netwatch.db
+ExecStart=/usr/bin/netwatch run
 
 Restart=on-failure
 RestartSec=10

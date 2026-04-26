@@ -81,33 +81,15 @@ install -d -m 0755 "$CONFIG_DIR"
 
 # ── default config ─────────────────────────────────────────────────────────────
 if [ ! -f "${CONFIG_DIR}/config.toml" ]; then
-    cat > "${CONFIG_DIR}/config.toml" << 'EOF'
-# Hosts to monitor
-sources = [
-    "https://www.google.com",
-    "https://www.cloudflare.com",
-]
-
-# Latency above this threshold (ms) is treated as degraded
-latency_threshold_ms = 500
-
-# How often to probe each source (seconds)
-check_interval_seconds = 60
-
-# Random jitter added to the interval (seconds)
-check_jitter_seconds = 5
-
-# HTTP API listen address
-http_api = "127.0.0.1"
-listen_port = 8080
-
-# Peer nodes for mesh sync (leave empty for standalone)
-peers = []
-sync_interval_seconds = 60
-EOF
+    if [ -t 0 ] && [ -t 1 ]; then
+        # Interactive terminal — ask the user for key settings
+        "${INSTALL_DIR}/${BINARY}" init
+    else
+        # Non-interactive (pipe/CI) — write defaults silently
+        "${INSTALL_DIR}/${BINARY}" init --defaults
+    fi
     chown root:"$SERVICE_USER" "${CONFIG_DIR}/config.toml"
     chmod 0640 "${CONFIG_DIR}/config.toml"
-    ok "Default config written to ${CONFIG_DIR}/config.toml"
 else
     info "Config already exists at ${CONFIG_DIR}/config.toml, skipping"
 fi
@@ -139,5 +121,5 @@ else
     echo
     echo "  Service unit installed at: ${SERVICE_FILE}"
     echo "  Config               : ${CONFIG_DIR}/config.toml"
-    echo "  Run manually         : ${INSTALL_DIR}/${BINARY} run --config ${CONFIG_DIR}/config.toml --db ${DATA_DIR}"
+    echo "  Run manually         : ${INSTALL_DIR}/${BINARY} run"
 fi
