@@ -185,6 +185,54 @@ async fn run_writes_results_to_db() {
 }
 
 #[tokio::test]
+async fn results_persisted_when_log_check_results_disabled() {
+    let server = MockServer::start().await;
+
+    Mock::given(method("HEAD"))
+        .and(path("/silent"))
+        .respond_with(ResponseTemplate::new(200))
+        .mount(&server)
+        .await;
+
+    let cfg = AppConfig {
+        log_check_results: false,
+        ..test_config(vec![format!("{}/silent", server.uri())])
+    };
+    let config = Arc::new(ArcSwap::new(Arc::new(cfg.clone())));
+    let client = Arc::new(build_client(&cfg).unwrap());
+    let checker = Arc::new(Checker::new(client, "test"));
+    let db = Arc::new(Mutex::new(Db::open_in_memory().unwrap()));
+    let cancel = CancellationToken::new();
+
+    let cancel_clone = cancel.clone();
+    let db_poll = Arc::clone(&db);
+    tokio::spawn(async move {
+        loop {
+            {
+                let db = db_poll.lock().unwrap();
+                if let Ok(rows) = db.latest_status(1)
+                    && !rows.is_empty()
+                {
+                    cancel_clone.cancel();
+                    return;
+                }
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+        }
+    });
+
+    run(config, checker, Arc::clone(&db), cancel).await;
+
+    let rows = db.lock().unwrap().latest_status(1).unwrap();
+    assert_eq!(
+        rows.len(),
+        1,
+        "results must be persisted even with log_check_results=false"
+    );
+    assert!(rows[0].ok);
+}
+
+#[tokio::test]
 async fn run_persists_multiple_results_in_one_cycle() {
     let server = MockServer::start().await;
     // normalize_host strips path, so all three URLs share the same host key

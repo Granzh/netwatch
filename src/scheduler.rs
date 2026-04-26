@@ -51,18 +51,20 @@ pub async fn run(
 
         let results = check_all(&checker, &targets, cfg.max_concurrent_checks).await;
 
-        for r in &results {
-            if !r.ok {
-                log::warn!("{} DOWN {}ms", r.host, r.latency_ms);
-            } else if r.latency_ms > cfg.latency_threshold_ms {
-                log::warn!(
-                    "{} UP {}ms (above {}ms threshold)",
-                    r.host,
-                    r.latency_ms,
-                    cfg.latency_threshold_ms
-                );
-            } else {
-                log::info!("{} UP {}ms", r.host, r.latency_ms);
+        if cfg.log_check_results {
+            for r in &results {
+                if !r.ok {
+                    log::warn!("{} DOWN {}ms", r.host, r.latency_ms);
+                } else if r.latency_ms > cfg.latency_threshold_ms {
+                    log::warn!(
+                        "{} UP {}ms (above {}ms threshold)",
+                        r.host,
+                        r.latency_ms,
+                        cfg.latency_threshold_ms
+                    );
+                } else {
+                    log::info!("{} UP {}ms", r.host, r.latency_ms);
+                }
             }
         }
 
