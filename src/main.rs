@@ -389,8 +389,16 @@ fn cmd_init(config_path: &Path, defaults: bool) -> Result<(), Box<dyn std::error
             );
         }
 
-        let bind = prompt("HTTP API bind address", &config.http_api)?;
-        config.http_api = bind;
+        loop {
+            let bind = prompt("HTTP API bind address", &config.http_api)?;
+            match parse_listen_addr(&bind) {
+                Ok(_) => {
+                    config.http_api = bind;
+                    break;
+                }
+                Err(_) => println!("  '{}' is not a valid IP address, please try again.", bind),
+            }
+        }
 
         let peers_str = prompt(
             "Peer node URLs (space or comma separated, or Enter for none)",

@@ -153,20 +153,21 @@ impl AppConfig {
         Ok(config)
     }
 
-    pub fn load_or_default(path: impl AsRef<Path>) -> Self {
+    pub fn load_or_default(path: impl AsRef<Path>) -> Result<Self, ConfigError> {
         let path_ref = path.as_ref();
         match Self::load(path_ref) {
-            Ok(config) => config,
+            Ok(config) => Ok(config),
             Err(ConfigError::Io(ref e)) if e.kind() == std::io::ErrorKind::NotFound => {
-                Self::default()
+                Ok(Self::default())
             }
-            Err(e) => {
+            Err(ref e @ ConfigError::Parse(_)) => {
                 log::warn!(
-                    "[config] failed to load '{}': {e} — using defaults",
+                    "[config] failed to parse '{}': {e} — using defaults",
                     path_ref.display()
                 );
-                Self::default()
+                Ok(Self::default())
             }
+            Err(e) => Err(e),
         }
     }
 

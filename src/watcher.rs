@@ -1,4 +1,4 @@
-use crate::config::AppConfig;
+use crate::config::{AppConfig, ConfigError};
 use arc_swap::ArcSwap;
 use notify::{Event, EventKind, RecommendedWatcher, RecursiveMode, Watcher};
 use std::sync::atomic::Ordering;
@@ -13,6 +13,8 @@ use thiserror::Error;
 pub enum WatcherError {
     #[error("Watcher error: {0}")]
     Notify(#[from] notify::Error),
+    #[error("Config error: {0}")]
+    Config(#[from] ConfigError),
 }
 
 /// Returns `true` if the event should be suppressed (debounced).
@@ -29,7 +31,20 @@ pub struct ConfigStore {
 impl ConfigStore {
     pub fn new(path: impl AsRef<Path>, debounce: Duration) -> Result<Self, WatcherError> {
         let path = path.as_ref().to_path_buf();
-        let initial = AppConfig::load_or_default(&path);
+        let initial = match AppConfig::load(&path) {
+            Ok(config) => config,
+            Err(ConfigError::Io(ref e)) if e.kind() == std::io::ErrorKind::NotFound => {
+                AppConfig::default()
+            }
+            Err(ref e @ ConfigError::Parse(_)) => {
+                log::warn!(
+                    "[config] failed to parse '{}': {e} — using defaults",
+                    path.display()
+                );
+                AppConfig::default()
+            }
+            Err(e) => return Err(WatcherError::Config(e)),
+        };
         let inner = Arc::new(ArcSwap::new(Arc::new(initial)));
         let watcher = spawn_watcher(path, Arc::clone(&inner), debounce)?;
         Ok(Self {

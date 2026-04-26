@@ -39,7 +39,7 @@ fn load_or_default_returns_default_when_file_missing() {
 
     assert!(!path.exists());
 
-    let config = AppConfig::load_or_default(&path);
+    let config = AppConfig::load_or_default(&path).unwrap();
 
     assert_eq!(config, AppConfig::default());
     assert!(
@@ -73,7 +73,7 @@ fn load_or_default_returns_existing() {
     };
     custom.save(&path).unwrap();
 
-    let loaded = AppConfig::load_or_default(&path);
+    let loaded = AppConfig::load_or_default(&path).unwrap();
     assert_eq!(loaded, custom);
 }
 
@@ -164,7 +164,7 @@ fn load_or_default_preserves_peers_on_valid_config() {
     config.save(&path).unwrap();
 
     // Simulates what `netwatch run` does via ConfigStore
-    let loaded = AppConfig::load_or_default(&path);
+    let loaded = AppConfig::load_or_default(&path).unwrap();
 
     assert_eq!(
         loaded.peers,
@@ -181,7 +181,7 @@ fn load_or_default_returns_default_on_parse_error_without_touching_file() {
     let original = "this = [invalid toml {{ }}";
     std::fs::write(&path, original).unwrap();
 
-    let config = AppConfig::load_or_default(&path);
+    let config = AppConfig::load_or_default(&path).unwrap();
 
     assert_eq!(
         config,
@@ -192,6 +192,17 @@ fn load_or_default_returns_default_on_parse_error_without_touching_file() {
         std::fs::read_to_string(&path).unwrap(),
         original,
         "file must not be touched on parse error"
+    );
+}
+
+#[test]
+fn load_or_default_propagates_non_notfound_io_errors() {
+    let dir = tempdir().unwrap();
+    // Passing a *directory* as the path causes an I/O error that is not NotFound.
+    let err = AppConfig::load_or_default(dir.path()).unwrap_err();
+    assert!(
+        matches!(err, netwatch::config::ConfigError::Io(_)),
+        "expected Io error, got: {err:?}"
     );
 }
 
