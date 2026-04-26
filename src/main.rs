@@ -14,7 +14,10 @@ use netwatch::api::{AppState, router};
 use netwatch::checker::{Checker, build_client};
 use netwatch::config::AppConfig;
 use netwatch::db::Db;
-use netwatch::update::parse_semver;
+use netwatch::update::{
+    UpdateStatus, check_update, download_to, find_checksum_url, parse_expected_checksum,
+    select_asset,
+};
 use netwatch::watcher::ConfigStore;
 use netwatch::{peer_sync, scheduler};
 
@@ -440,101 +443,48 @@ fn cmd_init(config_path: &Path, defaults: bool) -> Result<(), Box<dyn std::error
 
 // ── self-update ────────────────────────────────────────────────────────────────
 
+const GITHUB_API: &str = "https://api.github.com";
 const GITHUB_REPO: &str = "Granzh/netwatch";
-const UPDATE_TARGET: &str = if cfg!(all(target_arch = "x86_64", target_os = "linux", target_env = "musl")) {
+const UPDATE_TARGET: &str = if cfg!(all(
+    target_arch = "x86_64",
+    target_os = "linux",
+    target_env = "musl"
+)) {
     "x86_64-unknown-linux-musl"
-} else if cfg!(all(target_arch = "x86_64", target_os = "linux", target_env = "gnu")) {
+} else if cfg!(all(
+    target_arch = "x86_64",
+    target_os = "linux",
+    target_env = "gnu"
+)) {
     "x86_64-unknown-linux-gnu"
-} else if cfg!(all(target_arch = "aarch64", target_os = "linux", target_env = "musl")) {
+} else if cfg!(all(
+    target_arch = "aarch64",
+    target_os = "linux",
+    target_env = "musl"
+)) {
     "aarch64-unknown-linux-musl"
-} else if cfg!(all(target_arch = "aarch64", target_os = "linux", target_env = "gnu")) {
+} else if cfg!(all(
+    target_arch = "aarch64",
+    target_os = "linux",
+    target_env = "gnu"
+)) {
     "aarch64-unknown-linux-gnu"
 } else if cfg!(all(target_arch = "x86_64", target_os = "macos")) {
     "x86_64-apple-darwin"
 } else if cfg!(all(target_arch = "aarch64", target_os = "macos")) {
     "aarch64-apple-darwin"
-} else if cfg!(all(target_arch = "x86_64", target_os = "windows")) {
-    "x86_64-pc-windows-msvc"
-} else if cfg!(all(target_arch = "aarch64", target_os = "windows")) {
-    "aarch64-pc-windows-msvc"
 } else {
     "unsupported-target"
 };
 
-async fn fetch_release(
-    client: &reqwest::Client,
-    tag: &str,
-) -> Result<serde_json::Value, Box<dyn std::error::Error>> {
-    let url = if tag == "latest" {
-        format!("https://api.github.com/repos/{GITHUB_REPO}/releases/latest")
-    } else {
-        format!("https://api.github.com/repos/{GITHUB_REPO}/releases/tags/{tag}")
-    };
-    let release = client
-        .get(&url)
-        .header(
-            "User-Agent",
-            format!("netwatch/{}", env!("CARGO_PKG_VERSION")),
-        )
-        .send()
-        .await?
-        .error_for_status()?
-        .json::<serde_json::Value>()
-        .await?;
-    Ok(release)
-}
-
-async fn download_to(
-    client: &reqwest::Client,
-    url: &str,
-    dest: &Path,
-) -> Result<(), Box<dyn std::error::Error>> {
-    use tokio::io::AsyncWriteExt;
-    let mut resp = client
-        .get(url)
-        .header(
-            "User-Agent",
-            format!("netwatch/{}", env!("CARGO_PKG_VERSION")),
-        )
-        .send()
-        .await?
-        .error_for_status()?;
-
-    let mut file = tokio::fs::File::create(dest).await?;
-    while let Some(chunk) = resp.chunk().await? {
-        file.write_all(&chunk).await?;
-    }
-    file.flush().await?;
-    Ok(())
-}
-
-fn find_checksum_url(assets: &[serde_json::Value], asset_name: &str) -> Option<String> {
-    let candidates = [format!("{asset_name}.sha256"), "SHA256SUMS".to_string()];
-    for name in &candidates {
-        if let Some(url) = assets
-            .iter()
-            .find(|a| a["name"].as_str() == Some(name.as_str()))
-            .and_then(|a| a["browser_download_url"].as_str())
-        {
-            return Some(url.to_string());
-        }
-    }
-    None
-}
-
 fn verify_checksum(archive: &Path, sums_file: &Path) -> Result<(), Box<dyn std::error::Error>> {
-    let archive_name = archive.file_name().ok_or("archive has no filename")?;
+    let archive_filename = archive
+        .file_name()
+        .and_then(|n| n.to_str())
+        .ok_or("archive has no filename")?;
     let sums = std::fs::read_to_string(sums_file)?;
 
-    let expected = sums
-        .lines()
-        .find_map(|line| {
-            let mut parts = line.split_whitespace();
-            let checksum = parts.next()?;
-            let filename = parts.next()?.trim_start_matches('*');
-
-            (Path::new(filename).file_name() == Some(archive_name)).then(|| checksum.to_string())
-        })
+    let expected = parse_expected_checksum(&sums, archive_filename)
         .ok_or("checksum not found in SHA256SUMS")?;
 
     let output = std::process::Command::new("sha256sum")
@@ -574,185 +524,144 @@ async fn cmd_update(
         .connect_timeout(Duration::from_secs(10))
         .build()?;
 
-    let tag = pin_version.as_deref().unwrap_or("latest");
-    print!("Fetching release info for '{tag}'... ");
+    let current = env!("CARGO_PKG_VERSION");
+    let pin = pin_version.as_deref();
+
+    print!(
+        "Fetching release info for '{}'... ",
+        pin.unwrap_or("latest")
+    );
     io::stdout().flush()?;
 
-    let release = fetch_release(&client, tag).await?;
-    let remote_tag = release["tag_name"]
-        .as_str()
-        .ok_or("GitHub response missing tag_name")?;
+    let status = check_update(&client, GITHUB_API, GITHUB_REPO, current, pin).await?;
 
-    println!("{remote_tag}");
-
-    let current = env!("CARGO_PKG_VERSION");
-    let current_parsed = parse_semver(current);
-    let remote_parsed = parse_semver(remote_tag);
-
-    let needs_update = match (current_parsed, remote_parsed) {
-        (Some(cur), Some(rem)) => rem > cur,
-        _ => {
-            // Can't compare — treat as needing update when a version is pinned
-            pin_version.is_some()
+    match status {
+        UpdateStatus::UpToDate => {
+            println!("Already up to date (v{current}).");
+            Ok(0)
         }
-    };
+        UpdateStatus::Available {
+            tag: remote_tag,
+            changelog_url,
+            assets,
+        } => {
+            println!("{remote_tag}");
 
-    if !needs_update {
-        println!("Already up to date (v{current}).");
-        return Ok(0);
-    }
-
-    if let Some(url) = release["html_url"].as_str() {
-        println!("Changelog: {url}");
-    }
-
-    if check_only {
-        println!("Update available: v{current} → {remote_tag}");
-        println!("Run `netwatch update` (as root) to install.");
-        return Ok(1);
-    }
-
-    // Find the right asset. Exclude checksum/SHA256SUMS-style artifacts and
-    // prefer installable archive formats when multiple assets match.
-    let assets = release["assets"].as_array().ok_or("no assets in release")?;
-    let asset = assets
-        .iter()
-        .filter(|a| {
-            let Some(name) = a["name"].as_str() else {
-                return false;
-            };
-
-            if !name.contains(UPDATE_TARGET) {
-                return false;
+            if let Some(url) = &changelog_url {
+                println!("Changelog: {url}");
             }
 
-            let lower = name.to_ascii_lowercase();
-            !(lower.ends_with(".sha256")
-                || lower.ends_with(".sha512")
-                || lower == "sha256sums"
-                || lower.ends_with(".sha256sums")
-                || lower.contains("sha256sums"))
-        })
-        .min_by_key(|a| {
-            let name = a["name"].as_str().unwrap_or_default();
-            if name.ends_with(".tar.gz") {
-                0
-            } else if name.ends_with(".tgz") {
-                1
+            if check_only {
+                println!("Update available: v{current} → {remote_tag}");
+                println!("Run `netwatch update` (as root) to install.");
+                return Ok(1);
+            }
+
+            // Select the installable archive asset for this platform.
+            let asset = select_asset(&assets, UPDATE_TARGET)
+                .ok_or_else(|| format!("no asset found for target '{UPDATE_TARGET}'"))?;
+
+            let asset_url = asset["browser_download_url"]
+                .as_str()
+                .ok_or("asset missing browser_download_url")?;
+            let asset_name = asset["name"].as_str().unwrap_or("netwatch.tar.gz");
+
+            // All temp files live in a private randomly-named directory so
+            // predictable paths in /tmp cannot be pre-created or symlinked.
+            let tmp_dir = tempfile::TempDir::new()?;
+            let archive_path = tmp_dir.path().join(asset_name);
+
+            println!("Downloading {asset_name}...");
+            download_to(&client, asset_url, &archive_path).await?;
+
+            // Verify checksum when a SHA256SUMS asset is available.
+            if let Some(checksum_url) = find_checksum_url(&assets, asset_name) {
+                let sums_path = tmp_dir.path().join("SHA256SUMS");
+                download_to(&client, &checksum_url, &sums_path).await?;
+                verify_checksum(&archive_path, &sums_path)?;
+            }
+
+            // Extract binary. Root-layout (./netwatch) is tried first;
+            // subdirectory layout (name/netwatch) is the fallback.
+            // For .tar.gz assets, extraction failure is always an error.
+            let extracted = tmp_dir.path().join("netwatch");
+            let is_archive = asset_name.ends_with(".tar.gz") || asset_name.ends_with(".tgz");
+
+            if is_archive {
+                let root_ok = std::process::Command::new("tar")
+                    .arg("-xzf")
+                    .arg(&archive_path)
+                    .arg("-C")
+                    .arg(tmp_dir.path())
+                    .arg("--no-same-owner")
+                    .arg("--no-same-permissions")
+                    .arg("netwatch")
+                    .status()
+                    .map(|s| s.success())
+                    .unwrap_or(false)
+                    && extracted.exists();
+
+                if !root_ok {
+                    let sub_ok = std::process::Command::new("tar")
+                        .arg("-xzf")
+                        .arg(&archive_path)
+                        .arg("-C")
+                        .arg(tmp_dir.path())
+                        .arg("--no-same-owner")
+                        .arg("--no-same-permissions")
+                        .arg("--wildcards")
+                        .arg("--strip-components=1")
+                        .arg("*/netwatch")
+                        .status()
+                        .map(|s| s.success())
+                        .unwrap_or(false)
+                        && extracted.exists();
+
+                    if !sub_ok {
+                        return Err(format!(
+                            "failed to extract netwatch binary from '{asset_name}'"
+                        )
+                        .into());
+                    }
+                }
             } else {
-                2
+                std::fs::rename(&archive_path, &extracted)?;
             }
-        })
-        .ok_or_else(|| format!("no asset found for target '{UPDATE_TARGET}'"))?;
 
-    let asset_url = asset["browser_download_url"]
-        .as_str()
-        .ok_or("asset missing browser_download_url")?;
-    let asset_name = asset["name"].as_str().unwrap_or("netwatch.tar.gz");
-
-    // All temp files live in a private randomly-named directory so predictable
-    // paths in /tmp cannot be pre-created or symlinked by another process.
-    let tmp_dir = tempfile::TempDir::new()?;
-    let archive_path = tmp_dir.path().join(asset_name);
-
-    println!("Downloading {asset_name}...");
-    download_to(&client, asset_url, &archive_path).await?;
-
-    // Verify checksum if a SHA256SUMS asset is present (also inside private tmp_dir)
-    if let Some(checksum_url) = find_checksum_url(assets, asset_name) {
-        let sums_path = tmp_dir.path().join("SHA256SUMS");
-        download_to(&client, &checksum_url, &sums_path).await?;
-        verify_checksum(&archive_path, &sums_path)?;
-    }
-
-    // Extract the netwatch binary from the archive.
-    // Current release workflow packs at archive root (./netwatch); try that
-    // first, then fall back to a subdirectory layout (netwatch-x.y.z/netwatch).
-    // For .tar.gz assets, failing to extract is always an error — never treat
-    // an archive file as a bare executable.
-    let extracted = tmp_dir.path().join("netwatch");
-    let is_archive = asset_name.ends_with(".tar.gz") || asset_name.ends_with(".tgz");
-
-    if is_archive {
-        // --no-same-owner / --no-same-permissions prevent the archive from
-        // injecting unexpected ownership or setuid bits into the temp dir.
-        let root_ok = std::process::Command::new("tar")
-            .arg("-xzf")
-            .arg(&archive_path)
-            .arg("-C")
-            .arg(tmp_dir.path())
-            .arg("--no-same-owner")
-            .arg("--no-same-permissions")
-            .arg("netwatch")
-            .status()
-            .map(|s| s.success())
-            .unwrap_or(false)
-            && extracted.exists();
-
-        if !root_ok {
-            let sub_ok = std::process::Command::new("tar")
-                .arg("-xzf")
-                .arg(&archive_path)
-                .arg("-C")
-                .arg(tmp_dir.path())
-                .arg("--no-same-owner")
-                .arg("--no-same-permissions")
-                .arg("--wildcards")
-                .arg("--strip-components=1")
-                .arg("*/netwatch")
-                .status()
-                .map(|s| s.success())
-                .unwrap_or(false)
-                && extracted.exists();
-
-            if !sub_ok {
-                return Err(
-                    format!("failed to extract netwatch binary from '{asset_name}'").into(),
-                );
+            // Reject symlinks and non-regular files before copying.
+            {
+                let meta = std::fs::symlink_metadata(&extracted)?;
+                if !meta.file_type().is_file() {
+                    return Err(format!(
+                        "extracted '{}' is not a regular file (symlink or special file rejected)",
+                        extracted.display()
+                    )
+                    .into());
+                }
             }
-        }
-    } else {
-        // Bare binary asset
-        std::fs::rename(&archive_path, &extracted)?;
-    }
 
-    // Reject symlinks and non-regular files before copying into the install
-    // directory — a malicious archive could embed netwatch as a symlink to
-    // redirect the subsequent copy/rename to an arbitrary path.
-    {
-        let meta = std::fs::symlink_metadata(&extracted)?;
-        if !meta.file_type().is_file() {
-            return Err(format!(
-                "extracted '{}' is not a regular file (symlink or special file rejected)",
-                extracted.display()
-            )
-            .into());
+            // Stage in the same directory as current_exe so rename is atomic.
+            let current_exe = std::env::current_exe()?;
+            let install_dir = current_exe
+                .parent()
+                .ok_or("cannot determine install directory")?;
+            let staging = install_dir.join(".netwatch.new");
+
+            std::fs::copy(&extracted, &staging)?;
+
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::PermissionsExt;
+                let mut perms = std::fs::metadata(&staging)?.permissions();
+                perms.set_mode(0o755);
+                std::fs::set_permissions(&staging, perms)?;
+            }
+
+            std::fs::rename(&staging, &current_exe)?;
+
+            println!("Updated to {remote_tag} at {}.", current_exe.display());
+            println!("Run: sudo systemctl restart netwatch");
+            Ok(0)
         }
     }
-
-    // Stage next to current_exe (same filesystem) so the final rename is atomic.
-    // tmp_dir may be on a different filesystem than the install location, so
-    // use copy (cross-filesystem safe) then rename within the same directory.
-    let current_exe = std::env::current_exe()?;
-    let install_dir = current_exe
-        .parent()
-        .ok_or("cannot determine install directory")?;
-    let staging = install_dir.join(".netwatch.new");
-
-    std::fs::copy(&extracted, &staging)?;
-    // tmp_dir and all its contents are cleaned up automatically on drop.
-
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        let mut perms = std::fs::metadata(&staging)?.permissions();
-        perms.set_mode(0o755);
-        std::fs::set_permissions(&staging, perms)?;
-    }
-
-    std::fs::rename(&staging, &current_exe)?;
-
-    println!("Updated to {remote_tag} at {}.", current_exe.display());
-    println!("Run: sudo systemctl restart netwatch");
-    Ok(0)
 }
