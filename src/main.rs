@@ -610,53 +610,77 @@ async fn cmd_update(
         .ok_or("asset missing browser_download_url")?;
     let asset_name = asset["name"].as_str().unwrap_or("netwatch.tar.gz");
 
-    // Download archive to temp dir
-    let tmp_dir = std::env::temp_dir();
-    let archive_path = tmp_dir.join(asset_name);
+    // All temp files live in a private randomly-named directory so predictable
+    // paths in /tmp cannot be pre-created or symlinked by another process.
+    let tmp_dir = tempfile::TempDir::new()?;
+    let archive_path = tmp_dir.path().join(asset_name);
 
     println!("Downloading {asset_name}...");
     download_to(&client, asset_url, &archive_path).await?;
 
-    // Verify checksum if a SHA256SUMS asset is present
+    // Verify checksum if a SHA256SUMS asset is present (also inside private tmp_dir)
     if let Some(checksum_url) = find_checksum_url(assets, asset_name) {
-        let sums_path = tmp_dir.join("SHA256SUMS");
+        let sums_path = tmp_dir.path().join("SHA256SUMS");
         download_to(&client, &checksum_url, &sums_path).await?;
         verify_checksum(&archive_path, &sums_path)?;
-        let _ = std::fs::remove_file(&sums_path);
     }
 
-    // Extract binary into tmp_dir using OsStr paths (no .to_str().unwrap())
-    let extracted = tmp_dir.join("netwatch.extracted");
-    let tar_ok = std::process::Command::new("tar")
-        .arg("-xzf")
-        .arg(&archive_path)
-        .arg("-C")
-        .arg(&tmp_dir)
-        .arg("--wildcards")
-        .arg("*/netwatch")
-        .arg("--strip-components=1")
-        .status()
-        .map(|s| s.success())
-        .unwrap_or(false);
+    // Extract the netwatch binary from the archive.
+    // Current release workflow packs at archive root (./netwatch); try that
+    // first, then fall back to a subdirectory layout (netwatch-x.y.z/netwatch).
+    // For .tar.gz assets, failing to extract is always an error — never treat
+    // an archive file as a bare executable.
+    let extracted = tmp_dir.path().join("netwatch");
+    let is_archive = asset_name.ends_with(".tar.gz") || asset_name.ends_with(".tgz");
 
-    if tar_ok {
-        std::fs::rename(tmp_dir.join("netwatch"), &extracted)?;
+    if is_archive {
+        let root_ok = std::process::Command::new("tar")
+            .arg("-xzf")
+            .arg(&archive_path)
+            .arg("-C")
+            .arg(tmp_dir.path())
+            .arg("netwatch")
+            .status()
+            .map(|s| s.success())
+            .unwrap_or(false)
+            && extracted.exists();
+
+        if !root_ok {
+            let sub_ok = std::process::Command::new("tar")
+                .arg("-xzf")
+                .arg(&archive_path)
+                .arg("-C")
+                .arg(tmp_dir.path())
+                .arg("--wildcards")
+                .arg("--strip-components=1")
+                .arg("*/netwatch")
+                .status()
+                .map(|s| s.success())
+                .unwrap_or(false)
+                && extracted.exists();
+
+            if !sub_ok {
+                return Err(
+                    format!("failed to extract netwatch binary from '{asset_name}'").into(),
+                );
+            }
+        }
     } else {
-        // Archive may be a bare binary
+        // Bare binary asset
         std::fs::rename(&archive_path, &extracted)?;
     }
-    let _ = std::fs::remove_file(&archive_path);
 
-    // Stage next to current_exe (same filesystem) so rename is atomic
+    // Stage next to current_exe (same filesystem) so the final rename is atomic.
+    // tmp_dir may be on a different filesystem than the install location, so
+    // use copy (cross-filesystem safe) then rename within the same directory.
     let current_exe = std::env::current_exe()?;
     let install_dir = current_exe
         .parent()
         .ok_or("cannot determine install directory")?;
     let staging = install_dir.join(".netwatch.new");
 
-    // Copy cross-filesystem, then rename within the same directory
     std::fs::copy(&extracted, &staging)?;
-    let _ = std::fs::remove_file(&extracted);
+    // tmp_dir and all its contents are cleaned up automatically on drop.
 
     #[cfg(unix)]
     {
