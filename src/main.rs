@@ -362,7 +362,10 @@ fn prompt(label: &str, default: &str) -> io::Result<String> {
 
 fn cmd_init(config_path: &Path, defaults: bool) -> Result<(), Box<dyn std::error::Error>> {
     if config_path.exists() {
-        println!("Config already exists at '{}', skipping.", config_path.display());
+        println!(
+            "Config already exists at '{}', skipping.",
+            config_path.display()
+        );
         return Ok(());
     }
 
@@ -380,7 +383,10 @@ fn cmd_init(config_path: &Path, defaults: bool) -> Result<(), Box<dyn std::error
         let bind = prompt("HTTP API bind address", &config.http_api)?;
         config.http_api = bind;
 
-        let peers_str = prompt("Peer node URLs (space or comma separated, or Enter for none)", "")?;
+        let peers_str = prompt(
+            "Peer node URLs (space or comma separated, or Enter for none)",
+            "",
+        )?;
         config.peers = peers_str
             .split([',', ' '])
             .map(str::trim)

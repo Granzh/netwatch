@@ -42,7 +42,10 @@ fn load_or_default_returns_default_when_file_missing() {
     let config = AppConfig::load_or_default(&path);
 
     assert_eq!(config, AppConfig::default());
-    assert!(!path.exists(), "load_or_default must not create files — use `netwatch init` for that");
+    assert!(
+        !path.exists(),
+        "load_or_default must not create files — use `netwatch init` for that"
+    );
 }
 
 #[test]
@@ -180,7 +183,11 @@ fn load_or_default_returns_default_on_parse_error_without_touching_file() {
 
     let config = AppConfig::load_or_default(&path);
 
-    assert_eq!(config, AppConfig::default(), "should fall back to defaults on parse error");
+    assert_eq!(
+        config,
+        AppConfig::default(),
+        "should fall back to defaults on parse error"
+    );
     assert_eq!(
         std::fs::read_to_string(&path).unwrap(),
         original,
