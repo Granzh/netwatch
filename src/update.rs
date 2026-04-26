@@ -17,12 +17,20 @@ pub fn parse_semver(v: &str) -> Option<(u32, u32, u32)> {
     Some((major, minor, patch))
 }
 
-/// Returns `true` if `remote_tag` represents a newer release than `current`.
-/// Falls back to `true` only when a specific version is pinned and parsing fails.
+/// Returns `true` if `remote_tag` should be installed over `current`.
+/// For pinned versions, any different tag counts as needing installation,
+/// including downgrades. For unpinned versions, only semver upgrades do.
 pub fn needs_update(current: &str, remote_tag: &str, pin_version: Option<&str>) -> bool {
+    if pin_version.is_some() {
+        return match (parse_semver(current), parse_semver(remote_tag)) {
+            (Some(cur), Some(rem)) => rem != cur,
+            _ => current.trim() != remote_tag.trim(),
+        };
+    }
+
     match (parse_semver(current), parse_semver(remote_tag)) {
         (Some(cur), Some(rem)) => rem > cur,
-        _ => pin_version.is_some(),
+        _ => false,
     }
 }
 
