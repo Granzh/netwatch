@@ -594,15 +594,36 @@ async fn cmd_update(
         return Ok(1);
     }
 
-    // Find the right asset
+    // Find the right asset. Exclude checksum/SHA256SUMS-style artifacts and
+    // prefer installable archive formats when multiple assets match.
     let assets = release["assets"].as_array().ok_or("no assets in release")?;
     let asset = assets
         .iter()
-        .find(|a| {
-            a["name"]
-                .as_str()
-                .map(|n| n.contains(UPDATE_TARGET))
-                .unwrap_or(false)
+        .filter(|a| {
+            let Some(name) = a["name"].as_str() else {
+                return false;
+            };
+
+            if !name.contains(UPDATE_TARGET) {
+                return false;
+            }
+
+            let lower = name.to_ascii_lowercase();
+            !(lower.ends_with(".sha256")
+                || lower.ends_with(".sha512")
+                || lower == "sha256sums"
+                || lower.ends_with(".sha256sums")
+                || lower.contains("sha256sums"))
+        })
+        .min_by_key(|a| {
+            let name = a["name"].as_str().unwrap_or_default();
+            if name.ends_with(".tar.gz") {
+                0
+            } else if name.ends_with(".tgz") {
+                1
+            } else {
+                2
+            }
         })
         .ok_or_else(|| format!("no asset found for target '{UPDATE_TARGET}'"))?;
 
