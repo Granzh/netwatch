@@ -510,15 +510,14 @@ fn verify_checksum(archive: &Path, sums_file: &Path) -> Result<(), Box<dyn std::
 
     let expected = sums
         .lines()
-        .find(|line| {
-            line.split_whitespace()
-                .nth(1)
-                .map(|n| std::path::Path::new(n).file_name() == Some(archive_name))
-                .unwrap_or(false)
+        .find_map(|line| {
+            let mut parts = line.split_whitespace();
+            let checksum = parts.next()?;
+            let filename = parts.next()?.trim_start_matches('*');
+
+            (Path::new(filename).file_name() == Some(archive_name)).then(|| checksum.to_string())
         })
-        .and_then(|line| line.split_whitespace().next())
-        .ok_or("checksum not found in SHA256SUMS")?
-        .to_string();
+        .ok_or("checksum not found in SHA256SUMS")?;
 
     let output = std::process::Command::new("sha256sum")
         .arg(archive)
