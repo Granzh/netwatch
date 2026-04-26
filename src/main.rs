@@ -553,6 +553,8 @@ async fn cmd_update(
 ) -> Result<i32, Box<dyn std::error::Error>> {
     let client = reqwest::Client::builder()
         .user_agent(format!("netwatch/{}", env!("CARGO_PKG_VERSION")))
+        .timeout(Duration::from_secs(30))
+        .connect_timeout(Duration::from_secs(10))
         .build()?;
 
     let tag = pin_version.as_deref().unwrap_or("latest");
