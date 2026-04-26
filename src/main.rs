@@ -441,7 +441,25 @@ fn cmd_init(config_path: &Path, defaults: bool) -> Result<(), Box<dyn std::error
 // ── self-update ────────────────────────────────────────────────────────────────
 
 const GITHUB_REPO: &str = "Granzh/netwatch";
-const UPDATE_TARGET: &str = "x86_64-unknown-linux-musl";
+const UPDATE_TARGET: &str = if cfg!(all(target_arch = "x86_64", target_os = "linux", target_env = "musl")) {
+    "x86_64-unknown-linux-musl"
+} else if cfg!(all(target_arch = "x86_64", target_os = "linux", target_env = "gnu")) {
+    "x86_64-unknown-linux-gnu"
+} else if cfg!(all(target_arch = "aarch64", target_os = "linux", target_env = "musl")) {
+    "aarch64-unknown-linux-musl"
+} else if cfg!(all(target_arch = "aarch64", target_os = "linux", target_env = "gnu")) {
+    "aarch64-unknown-linux-gnu"
+} else if cfg!(all(target_arch = "x86_64", target_os = "macos")) {
+    "x86_64-apple-darwin"
+} else if cfg!(all(target_arch = "aarch64", target_os = "macos")) {
+    "aarch64-apple-darwin"
+} else if cfg!(all(target_arch = "x86_64", target_os = "windows")) {
+    "x86_64-pc-windows-msvc"
+} else if cfg!(all(target_arch = "aarch64", target_os = "windows")) {
+    "aarch64-pc-windows-msvc"
+} else {
+    "unsupported-target"
+};
 
 async fn fetch_release(
     client: &reqwest::Client,
