@@ -305,7 +305,7 @@ fn cmd_list(config_path: &Path) -> Result<(), Box<dyn std::error::Error>> {
         Ok(c) => c,
         Err(ConfigError::Io(e)) if e.kind() == std::io::ErrorKind::NotFound => {
             println!(
-                "(config file '{}' not found — showing defaults; use --config or run `netwatch run` first)",
+                "(config file '{}' not found — showing defaults; run `netwatch init` to create one)",
                 config_path.display()
             );
             AppConfig::default()
@@ -378,8 +378,15 @@ fn cmd_init(config_path: &Path, defaults: bool) -> Result<(), Box<dyn std::error
         println!();
 
         let port_str = prompt("Listen port", &config.listen_port.to_string())?;
-        if let Ok(p) = port_str.parse::<u16>() {
+        if port_str.trim().is_empty() {
+            // Keep the default listen port.
+        } else if let Ok(p) = port_str.parse::<u16>() {
             config.set_port(p);
+        } else {
+            eprintln!(
+                "Invalid listen port '{}'; using default {}.",
+                port_str, config.listen_port
+            );
         }
 
         let bind = prompt("HTTP API bind address", &config.http_api)?;
