@@ -635,11 +635,15 @@ async fn cmd_update(
     let is_archive = asset_name.ends_with(".tar.gz") || asset_name.ends_with(".tgz");
 
     if is_archive {
+        // --no-same-owner / --no-same-permissions prevent the archive from
+        // injecting unexpected ownership or setuid bits into the temp dir.
         let root_ok = std::process::Command::new("tar")
             .arg("-xzf")
             .arg(&archive_path)
             .arg("-C")
             .arg(tmp_dir.path())
+            .arg("--no-same-owner")
+            .arg("--no-same-permissions")
             .arg("netwatch")
             .status()
             .map(|s| s.success())
@@ -652,6 +656,8 @@ async fn cmd_update(
                 .arg(&archive_path)
                 .arg("-C")
                 .arg(tmp_dir.path())
+                .arg("--no-same-owner")
+                .arg("--no-same-permissions")
                 .arg("--wildcards")
                 .arg("--strip-components=1")
                 .arg("*/netwatch")
@@ -669,6 +675,20 @@ async fn cmd_update(
     } else {
         // Bare binary asset
         std::fs::rename(&archive_path, &extracted)?;
+    }
+
+    // Reject symlinks and non-regular files before copying into the install
+    // directory — a malicious archive could embed netwatch as a symlink to
+    // redirect the subsequent copy/rename to an arbitrary path.
+    {
+        let meta = std::fs::symlink_metadata(&extracted)?;
+        if !meta.file_type().is_file() {
+            return Err(format!(
+                "extracted '{}' is not a regular file (symlink or special file rejected)",
+                extracted.display()
+            )
+            .into());
+        }
     }
 
     // Stage next to current_exe (same filesystem) so the final rename is atomic.
