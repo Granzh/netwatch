@@ -54,6 +54,8 @@ pub struct AppConfig {
     pub sync_timeout_secs: u64,
     #[serde(default = "default_http_api")]
     pub http_api: String,
+    #[serde(default = "default_true")]
+    pub log_check_results: bool,
 }
 
 fn default_http_api() -> String {
@@ -139,6 +141,7 @@ impl Default for AppConfig {
             max_concurrent_syncs: default_max_concurrent_syncs(),
             sync_timeout_secs: default_sync_timeout_secs(),
             http_api: default_http_api(),
+            log_check_results: true,
         }
     }
 }

@@ -24,6 +24,7 @@ fn load_save_load_roundtrip() {
         sync_interval_seconds: 30,
         max_concurrent_syncs: 5,
         sync_timeout_secs: 30,
+        log_check_results: false,
     };
 
     original.save(&path).unwrap();
@@ -70,6 +71,7 @@ fn load_or_default_returns_existing() {
         sync_interval_seconds: 120,
         max_concurrent_syncs: 5,
         sync_timeout_secs: 30,
+        log_check_results: true,
     };
     custom.save(&path).unwrap();
 
@@ -192,6 +194,48 @@ fn load_or_default_returns_default_on_parse_error_without_touching_file() {
         std::fs::read_to_string(&path).unwrap(),
         original,
         "file must not be touched on parse error"
+    );
+}
+
+#[test]
+fn log_check_results_defaults_to_true() {
+    assert!(
+        AppConfig::default().log_check_results,
+        "log_check_results must be true by default so journald shows check results"
+    );
+}
+
+#[test]
+fn log_check_results_roundtrips_through_toml() {
+    let dir = tempdir().unwrap();
+    let path = dir.path().join("config.toml");
+
+    // Disabled in file
+    std::fs::write(
+        &path,
+        r#"sources = ["https://example.com"]
+latency_threshold_ms = 100
+check_interval_seconds = 60
+log_check_results = false
+"#,
+    )
+    .unwrap();
+    let loaded = AppConfig::load(&path).unwrap();
+    assert!(!loaded.log_check_results);
+
+    // Absent from file → default true
+    std::fs::write(
+        &path,
+        r#"sources = ["https://example.com"]
+latency_threshold_ms = 100
+check_interval_seconds = 60
+"#,
+    )
+    .unwrap();
+    let loaded = AppConfig::load(&path).unwrap();
+    assert!(
+        loaded.log_check_results,
+        "absent field must default to true"
     );
 }
 

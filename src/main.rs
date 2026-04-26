@@ -323,6 +323,7 @@ fn cmd_list(config_path: &Path) -> Result<(), Box<dyn std::error::Error>> {
     println!("Sync interval:     {}s", config.sync_interval_seconds);
     println!("Sync timeout:      {}s", config.sync_timeout_secs);
     println!("Latency threshold: {}ms", config.latency_threshold_ms);
+    println!("Log check results: {}", config.log_check_results);
 
     println!("\nSources ({}):", config.sources.len());
     if config.sources.is_empty() {
