@@ -46,7 +46,7 @@ enum Command {
         #[arg(long)]
         live: bool,
         /// Refresh interval in seconds
-        #[arg(long, default_value_t = 5)]
+        #[arg(long, default_value_t = 5, value_parser = clap::value_parser!(u64).range(1..))]
         interval: u64,
     },
     /// Show check history for a specific host
@@ -236,14 +236,22 @@ async fn cmd_status(
 
 async fn live_loop(db_path: &Path, interval: u64) -> Result<(), Box<dyn std::error::Error>> {
     let mut prev_lines: u16 = 0;
+    let db = Arc::new(Mutex::new(Db::open(db_path)?));
 
     loop {
         if prev_lines > 0 {
             execute!(stdout(), cursor::MoveUp(prev_lines))?;
         }
 
-        let db = Db::open(db_path)?;
-        let results = db.latest_status(24)?;
+        let db = Arc::clone(&db);
+        let results = tokio::task::spawn_blocking(move || -> Result<_, io::Error> {
+            let db = db
+                .lock()
+                .map_err(|e| io::Error::other(format!("database lock poisoned: {e}")))?;
+            db.latest_status(24)
+                .map_err(|e| io::Error::other(format!("database query failed: {e}")))
+        })
+        .await??;
 
         let now = chrono::Utc::now().format("%Y-%m-%d %H:%M:%S");
         let header = format!(
