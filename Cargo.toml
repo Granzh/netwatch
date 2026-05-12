@@ -22,6 +22,7 @@ rand = "0.9"
 tokio-util = "0.7"
 clap = { version = "4", features = ["derive"] }
 tabled = "0.20"
+crossterm = "0.28"
 env_logger = "0.11"
 
 tempfile = "3"
