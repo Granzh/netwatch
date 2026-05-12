@@ -225,7 +225,11 @@ async fn cmd_status(
 
     execute!(stdout(), cursor::Hide)?;
     let result = live_loop(db_path, interval).await;
-    execute!(stdout(), cursor::Show, terminal::Clear(terminal::ClearType::FromCursorDown))?;
+    execute!(
+        stdout(),
+        cursor::Show,
+        terminal::Clear(terminal::ClearType::FromCursorDown)
+    )?;
     println!();
     result
 }
@@ -260,7 +264,10 @@ async fn live_loop(db_path: &Path, interval: u64) -> Result<(), Box<dyn std::err
             print!("\r\x1b[K{}\n", line);
             line_count += 1;
         }
-        execute!(stdout(), terminal::Clear(terminal::ClearType::FromCursorDown))?;
+        execute!(
+            stdout(),
+            terminal::Clear(terminal::ClearType::FromCursorDown)
+        )?;
         stdout().flush()?;
         prev_lines = line_count;
 
