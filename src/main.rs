@@ -1,11 +1,12 @@
 use netwatch::config::{ConfigError, parse_listen_addr};
-use std::io::{self, Write};
+use std::io::{self, IsTerminal, Write, stdout};
 use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use clap::{Parser, Subcommand};
+use crossterm::{cursor, execute, terminal};
 use tabled::settings::Style;
 use tabled::{Table, Tabled};
 use tokio_util::sync::CancellationToken;
@@ -40,7 +41,14 @@ enum Command {
     /// Start the scheduler, API server, and peer sync
     Run,
     /// Show the latest check status for all monitored hosts
-    Status,
+    Status {
+        /// Refresh table in-place until Ctrl+C
+        #[arg(long)]
+        live: bool,
+        /// Refresh interval in seconds
+        #[arg(long, default_value_t = 5, value_parser = clap::value_parser!(u64).range(1..))]
+        interval: u64,
+    },
     /// Show check history for a specific host
     History {
         host: String,
@@ -111,7 +119,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     match cli.command {
         Command::Run => cmd_run(&cli.config, &cli.db).await?,
-        Command::Status => cmd_status(&cli.db)?,
+        Command::Status { live, interval } => cmd_status(&cli.db, live, interval).await?,
         Command::History { host, limit } => cmd_history(&cli.db, &host, limit)?,
         Command::Add { url } => cmd_add(&cli.config, &url)?,
         Command::Remove { url } => cmd_remove(&cli.config, &url)?,
@@ -198,17 +206,85 @@ async fn cmd_run(config_path: &Path, db_path: &Path) -> Result<(), Box<dyn std::
     Ok(())
 }
 
-fn cmd_status(db_path: &Path) -> Result<(), Box<dyn std::error::Error>> {
-    let db = Db::open(db_path)?;
-    let results = db.latest_status(24)?;
-
-    if results.is_empty() {
-        println!("No data. Run `netwatch run` first.");
+async fn cmd_status(
+    db_path: &Path,
+    live: bool,
+    interval: u64,
+) -> Result<(), Box<dyn std::error::Error>> {
+    if !live || !stdout().is_terminal() {
+        let db = Db::open(db_path)?;
+        let results = db.latest_status(24)?;
+        if results.is_empty() {
+            println!("No data. Run `netwatch run` first.");
+            return Ok(());
+        }
+        let rows: Vec<StatusRow> = results.iter().map(result_to_row).collect();
+        println!("{}", Table::new(rows).with(Style::sharp()));
         return Ok(());
     }
 
-    let rows: Vec<StatusRow> = results.iter().map(result_to_row).collect();
-    println!("{}", Table::new(rows).with(Style::sharp()));
+    execute!(stdout(), cursor::Hide)?;
+    let result = live_loop(db_path, interval).await;
+    execute!(
+        stdout(),
+        cursor::Show,
+        terminal::Clear(terminal::ClearType::FromCursorDown)
+    )?;
+    println!();
+    result
+}
+
+async fn live_loop(db_path: &Path, interval: u64) -> Result<(), Box<dyn std::error::Error>> {
+    let mut prev_lines: u16 = 0;
+    let db = Arc::new(Mutex::new(Db::open(db_path)?));
+
+    loop {
+        if prev_lines > 0 {
+            execute!(stdout(), cursor::MoveUp(prev_lines))?;
+        }
+
+        let db = Arc::clone(&db);
+        let results = tokio::task::spawn_blocking(move || -> Result<_, io::Error> {
+            let db = db
+                .lock()
+                .map_err(|e| io::Error::other(format!("database lock poisoned: {e}")))?;
+            db.latest_status(24)
+                .map_err(|e| io::Error::other(format!("database query failed: {e}")))
+        })
+        .await??;
+
+        let now = chrono::Utc::now().format("%Y-%m-%d %H:%M:%S");
+        let header = format!(
+            "Last updated: {} UTC  |  Refresh: {}s  |  Ctrl+C to exit",
+            now, interval
+        );
+
+        let body = if results.is_empty() {
+            "No data. Run `netwatch run` first.".to_string()
+        } else {
+            let rows: Vec<StatusRow> = results.iter().map(result_to_row).collect();
+            Table::new(rows).with(Style::sharp()).to_string()
+        };
+
+        let output = format!("{}\n{}", header, body);
+        let mut line_count: u16 = 0;
+        for line in output.lines() {
+            print!("\r\x1b[K{}\n", line);
+            line_count += 1;
+        }
+        execute!(
+            stdout(),
+            terminal::Clear(terminal::ClearType::FromCursorDown)
+        )?;
+        stdout().flush()?;
+        prev_lines = line_count;
+
+        tokio::select! {
+            _ = tokio::time::sleep(Duration::from_secs(interval)) => {}
+            _ = tokio::signal::ctrl_c() => { break; }
+        }
+    }
+
     Ok(())
 }
 
